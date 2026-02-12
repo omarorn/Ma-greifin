@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { createRoot } from 'react-dom/client';
-import { Ship, Anchor, Fish, Coins, User, Waves, Bot, Play, Sparkles, AlertTriangle, X, ScrollText, Save, Trash2, ArrowRight, ShoppingCart, Map, DollarSign, Search, Calendar, Briefcase, FileText, Wrench, Clock, Battery, TrendingUp, TrendingDown, Minus, Dice5, Newspaper, Users, Medal, Navigation, Loader2 } from 'lucide-react';
+import { Ship, Anchor, Fish, Coins, User, Waves, Bot, Play, Sparkles, AlertTriangle, X, ScrollText, Save, Trash2, ArrowRight, ShoppingCart, Map, DollarSign, Search, Calendar, Briefcase, FileText, Wrench, Clock, Battery, TrendingUp, TrendingDown, Minus, Dice5, Newspaper, Users, Medal, Navigation, Loader2, ExternalLink } from 'lucide-react';
 import { GoogleGenAI } from "@google/genai";
 
 // --- Configuration ---
@@ -89,6 +89,7 @@ interface FishingTile {
 interface NewsItem {
   headline: string;
   body: string;
+  sources?: { title: string, uri: string }[];
 }
 
 // --- Helper Components ---
@@ -183,24 +184,50 @@ function App() {
     try {
         const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
         const prompt = `
-            Generate a short, sensational newspaper headline and a brief 2-sentence story for a fishing industry board game set in Iceland. 
-            Year: ${targetYear}. 
-            Context: ${marketTrend === 'BULL' ? 'Economic Boom' : marketTrend === 'BEAR' ? 'Economic Crisis' : 'Stable Market'}. 
-            Style: ${era === '1920' ? 'Old fashioned, dramatic 1920s journalism' : 'Modern, clickbait style'}.
-            Output solely strictly valid JSON format: { "headline": "string", "body": "string" }
+            You are a newspaper editor for an Icelandic fishing industry newspaper.
+            Current Game Year: ${targetYear}.
+            
+            Task: Use Google Search to find a REAL historical event relevant to Iceland, the ocean, economy, or fishing industry that happened in or around ${targetYear}.
+            If ${targetYear} is in the future (relative to real time), invent a plausible futuristic scenario involving the ocean/fishing based on current trends.
+            
+            Generate a JSON response with:
+            1. "headline": A sensational headline in Icelandic.
+            2. "body": A short 2-3 sentence summary of the event in Icelandic.
+            
+            Style: ${era === '1920' ? 'Old fashioned 1920s Icelandic journalism' : 'Modern, snappy Icelandic news'}.
+            
+            Return strictly valid JSON.
         `;
         
         const response = await ai.models.generateContent({
-            model: 'gemini-3-flash-preview',
+            model: 'gemini-3-pro-preview', // Using Pro for better reasoning/search
             contents: prompt,
-            config: { responseMimeType: 'application/json' }
+            config: { 
+                responseMimeType: 'application/json',
+                tools: [{googleSearch: {}}] 
+            }
         });
         
         const text = response.text;
         if (text) {
            const json = JSON.parse(text);
-           setAiNews(json);
-           setCurrentNews(json.headline); // Update the ticker
+           
+           // Extract sources from grounding metadata
+           const sources: { title: string, uri: string }[] = [];
+           const chunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks;
+           if (chunks) {
+               chunks.forEach((chunk: any) => {
+                   if (chunk.web?.uri && chunk.web?.title) {
+                       sources.push({ title: chunk.web.title, uri: chunk.web.uri });
+                   }
+               });
+           }
+
+           // De-duplicate sources
+           const uniqueSources = Array.from(new Map(sources.map(item => [item.uri, item])).values());
+
+           setAiNews({ ...json, sources: uniqueSources });
+           setCurrentNews(json.headline);
         }
     } catch (e) {
         console.error("AI News Generation Failed", e);
@@ -577,6 +604,22 @@ function App() {
                                   <div className="font-typewriter text-lg sm:text-xl leading-relaxed text-justify mb-8 opacity-90 columns-1 sm:columns-2 gap-8">
                                       {aiNews?.body || "Engar markverðar fréttir bárust í dag."}
                                   </div>
+
+                                  {aiNews?.sources && aiNews.sources.length > 0 && (
+                                      <div className="mb-6 pt-4 border-t border-current/20">
+                                          <div className="text-xs uppercase tracking-widest opacity-60 mb-2">Heimildir</div>
+                                          <div className="space-y-1">
+                                              {aiNews.sources.map((source, idx) => (
+                                                  <div key={idx} className="flex items-center gap-2 text-xs truncate opacity-70 hover:opacity-100">
+                                                      <ExternalLink size={10}/>
+                                                      <a href={source.uri} target="_blank" rel="noopener noreferrer" className="hover:underline">
+                                                          {source.title}
+                                                      </a>
+                                                  </div>
+                                              ))}
+                                          </div>
+                                      </div>
+                                  )}
 
                                   <button 
                                       onClick={() => setShowNewspaper(false)}
