@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { createRoot } from 'react-dom/client';
-import { Ship, Anchor, Fish, Coins, User, Waves, Bot, Play, Sparkles, AlertTriangle, X, ScrollText, Save, Trash2, ArrowRight, ShoppingCart, Map, DollarSign, Search, Calendar, Briefcase, FileText, Wrench, Clock, Battery, TrendingUp, TrendingDown, Minus, Dice5, Newspaper, LayoutGrid, MapPinned } from 'lucide-react';
+import { GoogleGenAI, Type } from "@google/genai";
+import { Ship, Anchor, Fish, Coins, User, Waves, Bot, Play, Sparkles, AlertTriangle, X, ScrollText, Save, Trash2, ArrowRight, ShoppingCart, Map, DollarSign, Search, Calendar, Briefcase, FileText, Wrench, Clock, Battery, TrendingUp, TrendingDown, Minus, Dice5, Newspaper, LayoutGrid, MapPinned, Loader2, Image as ImageIcon } from 'lucide-react';
 
 // --- Shared Configuration ---
 
@@ -54,11 +55,19 @@ interface FishingTile {
 
 // --- Helper Components ---
 
-const GameWrapper = ({ children, era }: { children?: React.ReactNode; era: Era }) => {
+const GameWrapper = ({ children, era, bgImage }: { children?: React.ReactNode; era: Era; bgImage?: string | null }) => {
   const themeClass = era === '2020' ? 'theme-modern' : 'theme-vintage';
   return (
-      <div className={themeClass}>
-          {children}
+      <div className={`${themeClass} relative min-h-screen w-full overflow-hidden`}>
+          {bgImage && (
+              <div className="fixed inset-0 z-0 opacity-20 pointer-events-none select-none">
+                  <img src={bgImage} alt="AI Generated Background" className="w-full h-full object-cover transition-opacity duration-1000 ease-in-out" />
+                  <div className={`absolute inset-0 ${era === '2020' ? 'bg-blue-900/10 mix-blend-overlay' : 'bg-[#3e2723]/10 mix-blend-multiply'}`}></div>
+              </div>
+          )}
+          <div className="relative z-10 w-full h-full">
+            {children}
+          </div>
       </div>
   );
 };
@@ -165,7 +174,7 @@ function TycoonGame({ era, onExit }: { era: Era, onExit: () => void }) {
 
   // Header for Tycoon
   const TycoonHeader = () => (
-    <div className="bg-header p-4 shadow-lg sticky top-0 z-50 flex justify-between items-center">
+    <div className="bg-header p-4 shadow-lg sticky top-0 z-50 flex justify-between items-center backdrop-blur-sm bg-opacity-95">
         <div className="flex items-center gap-4">
             <button onClick={onExit} className="btn-paper p-2 text-xs opacity-80 hover:opacity-100 flex items-center gap-1">
                 <ArrowRight className="rotate-180" size={14}/> Hætta
@@ -285,7 +294,7 @@ function TycoonGame({ era, onExit }: { era: Era, onExit: () => void }) {
   if (view === 'FISHING') {
     return (
         <div className={`min-h-screen relative text-white ${era === '2020' ? 'bg-slate-900' : 'bg-[#001020]'}`}>
-            <div className="absolute inset-0 opacity-20 bg-[url('https://www.transparenttextures.com/patterns/nautical-leather.png')]"></div>
+            <div className="absolute inset-0 opacity-40 bg-[url('https://www.transparenttextures.com/patterns/nautical-leather.png')]"></div>
             <div className="relative z-10 max-w-2xl mx-auto p-6 flex flex-col h-screen justify-center">
                  <h2 className="text-3xl font-header text-center mb-4 text-yellow-100">Á Veiðum</h2>
                  <div className="grid grid-cols-3 gap-3 aspect-square mb-8">
@@ -386,14 +395,57 @@ function BoardGame({ era, onExit }: { era: Era, onExit: () => void }) {
     }
     setBoard(spaces);
 
-    // Init Players
-    setPlayers([
+    // Init Players with temporary names
+    const tempPlayers: Player[] = [
         { id: 'p1', name: "Ég", isAI: false, money: START_MONEY, position: 0, color: 'blue', karma: 50, strategy: 'BALANCED', properties: [] },
-        { id: 'ai1', name: "Gunnar", isAI: true, money: START_MONEY, position: 0, color: 'red', karma: 30, strategy: 'AGGRESSIVE', properties: [] },
-        { id: 'ai2', name: "Ólafur", isAI: true, money: START_MONEY, position: 0, color: 'green', karma: 80, strategy: 'CONSERVATIVE', properties: [] },
-        { id: 'ai3', name: "Sofandi", isAI: true, money: START_MONEY, position: 0, color: 'gray', karma: 50, strategy: 'AFK', properties: [] }
-    ]);
-  }, []);
+        { id: 'ai1', name: era === '1920' ? "Gunnar" : "Gunnar", isAI: true, money: START_MONEY, position: 0, color: 'red', karma: 30, strategy: 'AGGRESSIVE', properties: [] },
+        { id: 'ai2', name: era === '1920' ? "Ólafur" : "Ólafur", isAI: true, money: START_MONEY, position: 0, color: 'green', karma: 80, strategy: 'CONSERVATIVE', properties: [] },
+        { id: 'ai3', name: era === '1920' ? "Sofandi" : "Sofandi", isAI: true, money: START_MONEY, position: 0, color: 'gray', karma: 50, strategy: 'AFK', properties: [] }
+    ];
+    setPlayers(tempPlayers);
+
+    // AI Name Generation
+    const generateAINames = async () => {
+        try {
+            const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+            const prompt = `Generate 3 distinct, creative Icelandic full names for AI opponents in a maritime board game set in the year ${era}.
+            They should reflect these specific strategies/personalities:
+            1. Aggressive (Ruthless tycoon, "Shark", Intense)
+            2. Conservative (Careful investor, "Old Money", Safe)
+            3. AFK/Lazy (Daydreamer, Sleepy fisherman, Passive)
+            
+            Return ONLY a JSON array of 3 strings. Example: ["Sævar Sterki", "Páll Prúði", "Dofri Draumur"]`;
+
+            const response = await ai.models.generateContent({
+                model: 'gemini-3-flash-preview',
+                contents: prompt,
+                config: {
+                    responseMimeType: "application/json",
+                    responseSchema: {
+                        type: Type.ARRAY,
+                        items: { type: Type.STRING }
+                    }
+                }
+            });
+
+            const names = JSON.parse(response.text);
+            if (Array.isArray(names) && names.length === 3) {
+                setPlayers(prev => {
+                    const newPlayers = [...prev];
+                    // Keep Player 0 (Human)
+                    if (newPlayers[1]) newPlayers[1].name = names[0]; // Aggressive
+                    if (newPlayers[2]) newPlayers[2].name = names[1]; // Conservative
+                    if (newPlayers[3]) newPlayers[3].name = names[2]; // AFK
+                    return newPlayers;
+                });
+            }
+        } catch (e) {
+            console.error("Failed to generate AI names, keeping defaults", e);
+        }
+    };
+    generateAINames();
+
+  }, [era]);
 
   const nextTurn = () => {
     let nextIdx = currentPlayerIdx + 1;
@@ -548,7 +600,7 @@ function BoardGame({ era, onExit }: { era: Era, onExit: () => void }) {
   // Board View Render
   return (
       <div className="min-h-screen flex flex-col">
-          <div className="bg-header p-4 flex justify-between items-center shadow-md z-10">
+          <div className="bg-header p-4 flex justify-between items-center shadow-md z-10 backdrop-blur-sm bg-opacity-95">
               <div className="flex items-center gap-4">
                   <button onClick={onExit} className="btn-paper p-2 text-xs opacity-80 hover:opacity-100 flex items-center gap-1">
                         <ArrowRight className="rotate-180" size={14}/> Hætta
@@ -570,10 +622,10 @@ function BoardGame({ era, onExit }: { era: Era, onExit: () => void }) {
           
           <div className="flex-1 flex overflow-hidden">
               {/* Sidebar */}
-              <div className="w-64 bg-black/5 p-4 border-r border-black/10 overflow-y-auto hidden md:block">
+              <div className="w-64 bg-white/50 p-4 border-r border-black/10 overflow-y-auto hidden md:block backdrop-blur-sm">
                   <h3 className="font-header mb-4 opacity-70">Spilarar</h3>
                   {players.map((p, i) => (
-                      <div key={p.id} className={`p-3 rounded border mb-2 transition-all ${i === currentPlayerIdx ? 'bg-white shadow-md scale-105' : 'opacity-70 border-transparent'}`}>
+                      <div key={p.id} className={`p-3 rounded border mb-2 transition-all ${i === currentPlayerIdx ? 'bg-white shadow-md scale-105' : 'opacity-70 border-transparent bg-white/30'}`}>
                           <div className="flex justify-between font-bold mb-1">
                               {p.name} {i === currentPlayerIdx && <div className="w-2 h-2 rounded-full bg-red-500 animate-ping"/>}
                           </div>
@@ -604,7 +656,7 @@ function BoardGame({ era, onExit }: { era: Era, onExit: () => void }) {
                            const isCurrent = space.id === players[currentPlayerIdx].position;
                            const owner = players.find(p => p.id === space.ownerId);
                            return (
-                               <div key={space.id} className={`aspect-square p-2 border relative flex flex-col items-center justify-between text-center transition-all ${isCurrent ? 'scale-110 z-10 bg-white shadow-xl ring-2 ring-blue-500' : 'bg-white/50 opacity-90'}`} style={{ borderColor: owner ? owner.color : undefined, borderWidth: owner ? 2 : 1 }}>
+                               <div key={space.id} className={`aspect-square p-2 border relative flex flex-col items-center justify-between text-center transition-all ${isCurrent ? 'scale-110 z-10 bg-white shadow-xl ring-2 ring-blue-500' : 'bg-white/70 opacity-90 backdrop-blur-sm'}`} style={{ borderColor: owner ? owner.color : undefined, borderWidth: owner ? 2 : 1 }}>
                                    <div className="text-[10px] opacity-50">{space.type}</div>
                                    <div className="flex-1 flex flex-col justify-center items-center">
                                        <div className="mb-1 opacity-70">{space.icon}</div>
@@ -647,47 +699,147 @@ function App() {
   const [view, setView] = useState<'SPLIT' | 'MODE_SELECT' | 'GAME'>('SPLIT');
   const [era, setEra] = useState<Era>('1920');
   const [gameMode, setGameMode] = useState<GameMode>('TYCOON');
+  
+  // Background Generation State
+  const [bgImage, setBgImage] = useState<string | null>(null);
+  const [hasApiKey, setHasApiKey] = useState(false);
+  const [isGenerating, setIsGenerating] = useState(false);
+
+  // Check for existing API key
+  useEffect(() => {
+    const checkKey = async () => {
+      // @ts-ignore
+      if (window.aistudio && await window.aistudio.hasSelectedApiKey()) {
+        setHasApiKey(true);
+        generateBackground();
+      }
+    };
+    checkKey();
+  }, []);
+
+  const handleConnect = async () => {
+      try {
+          // @ts-ignore
+          if (window.aistudio) {
+            // @ts-ignore
+            await window.aistudio.openSelectKey();
+            setHasApiKey(true);
+            generateBackground();
+          }
+      } catch (e) {
+          console.error("Failed to select key", e);
+      }
+  };
+
+  const generateBackground = async () => {
+      if (bgImage) return; // Already generated
+      setIsGenerating(true);
+      try {
+          const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+          const response = await ai.models.generateContent({
+              model: 'gemini-3-pro-image-preview',
+              contents: {
+                  parts: [
+                      { text: 'A surreal, high-resolution maritime landscape. Foreground: Dark ocean waves with a mix of vintage 1920s wooden boats and futuristic neon-lit hydrofoils. Background: Dramatic Icelandic mountains under a sky combining Aurora Borealis with digital circuit patterns. Style: Cinematic, hyper-realistic, 4k, atmospheric lighting.' }
+                  ]
+              },
+              config: {
+                  imageConfig: {
+                      imageSize: '2K',
+                      aspectRatio: '16:9'
+                  }
+              }
+          });
+          
+          for (const part of response.candidates[0].content.parts) {
+              if (part.inlineData) {
+                  setBgImage(`data:image/png;base64,${part.inlineData.data}`);
+                  break;
+              }
+          }
+      } catch (e) {
+          console.error("Failed to generate background", e);
+      }
+      setIsGenerating(false);
+  };
+
+  if (!hasApiKey) {
+      return (
+          <div className="min-h-screen bg-[#0f172a] text-white flex flex-col items-center justify-center p-8 text-center font-serif relative overflow-hidden">
+               <div className="absolute inset-0 opacity-20 bg-[url('https://www.transparenttextures.com/patterns/nautical-leather.png')]"></div>
+               <div className="relative z-10 max-w-md w-full">
+                    <h1 className="text-6xl mb-2 font-header text-blue-400">MAÍ GREIFINN</h1>
+                    <p className="mb-8 text-slate-400 font-typewriter">
+                        Tengdu gervigreindina til að búa til þinn einstaka heim.
+                        <br/>(Connect AI to generate the world)
+                    </p>
+                    
+                    <button onClick={handleConnect} className="w-full py-4 bg-blue-600 hover:bg-blue-700 rounded-lg text-xl font-bold transition-all flex items-center justify-center gap-3 shadow-lg hover:shadow-blue-500/25 mb-4">
+                        <Sparkles size={24}/> Tengja & Spila
+                    </button>
+                    
+                    <div className="text-xs text-slate-600">
+                        <a href="https://ai.google.dev/gemini-api/docs/billing" target="_blank" className="underline hover:text-slate-400">
+                            Billing Information (Required for Image Generation)
+                        </a>
+                    </div>
+               </div>
+          </div>
+      );
+  }
+
+  if (isGenerating && !bgImage) {
+      return (
+          <div className="min-h-screen bg-[#0f172a] text-white flex flex-col items-center justify-center p-8">
+              <Loader2 size={64} className="animate-spin text-blue-500 mb-4"/>
+              <h2 className="text-2xl font-light tracking-widest animate-pulse font-typewriter">GENERATING WORLD...</h2>
+              <p className="text-sm opacity-50 mt-2">Teikna fjöllin, fylla hafið...</p>
+          </div>
+      );
+  }
 
   if (view === 'SPLIT') {
     return (
-        <div className="flex h-screen w-full overflow-hidden">
-            <div 
-                className="w-1/2 h-full bg-[#f6f1e1] text-[#2c1810] flex flex-col items-center justify-center p-8 relative cursor-pointer hover:bg-[#eaddcf] transition-colors group border-r-4 border-[#3e2723]"
-                onClick={() => { setEra('1920'); setView('MODE_SELECT'); }}
-                style={{ fontFamily: "'Playfair Display', serif" }}
-            >
-                <div className="absolute inset-0 opacity-10 bg-[url('https://www.transparenttextures.com/patterns/aged-paper.png')]"></div>
-                <h1 className="text-6xl mb-4 font-bold tracking-widest group-hover:scale-110 transition-transform">1920</h1>
-                <h2 className="text-2xl italic mb-8">Upphaf Útgerðar</h2>
-                <Anchor size={64} className="text-[#3e2723] opacity-80" />
+        <GameWrapper era={era} bgImage={bgImage}>
+            <div className="flex h-screen w-full overflow-hidden">
+                <div 
+                    className="w-1/2 h-full bg-[#f6f1e1]/90 text-[#2c1810] flex flex-col items-center justify-center p-8 relative cursor-pointer hover:bg-[#eaddcf]/95 transition-colors group border-r-4 border-[#3e2723]"
+                    onClick={() => { setEra('1920'); setView('MODE_SELECT'); }}
+                    style={{ fontFamily: "'Playfair Display', serif" }}
+                >
+                    <div className="absolute inset-0 opacity-10 bg-[url('https://www.transparenttextures.com/patterns/aged-paper.png')]"></div>
+                    <h1 className="text-6xl mb-4 font-bold tracking-widest group-hover:scale-110 transition-transform">1920</h1>
+                    <h2 className="text-2xl italic mb-8">Upphaf Útgerðar</h2>
+                    <Anchor size={64} className="text-[#3e2723] opacity-80" />
+                </div>
+                <div 
+                    className="w-1/2 h-full bg-[#0f172a]/90 text-white flex flex-col items-center justify-center p-8 relative cursor-pointer hover:bg-[#1e293b]/95 transition-colors group"
+                    onClick={() => { setEra('2020'); setView('MODE_SELECT'); }}
+                    style={{ fontFamily: "ui-sans-serif, system-ui, sans-serif" }}
+                >
+                    <h1 className="text-6xl mb-4 font-extrabold tracking-tight text-blue-400 group-hover:scale-110 transition-transform">2020</h1>
+                    <h2 className="text-2xl font-light mb-8 text-slate-300">Nútíma Tækni</h2>
+                    <Bot size={64} className="text-blue-500 opacity-80" />
+                </div>
             </div>
-            <div 
-                className="w-1/2 h-full bg-[#0f172a] text-white flex flex-col items-center justify-center p-8 relative cursor-pointer hover:bg-[#1e293b] transition-colors group"
-                onClick={() => { setEra('2020'); setView('MODE_SELECT'); }}
-                style={{ fontFamily: "ui-sans-serif, system-ui, sans-serif" }}
-            >
-                <h1 className="text-6xl mb-4 font-extrabold tracking-tight text-blue-400 group-hover:scale-110 transition-transform">2020</h1>
-                <h2 className="text-2xl font-light mb-8 text-slate-300">Nútíma Tækni</h2>
-                <Bot size={64} className="text-blue-500 opacity-80" />
-            </div>
-        </div>
+        </GameWrapper>
     );
   }
 
   if (view === 'MODE_SELECT') {
       return (
-          <GameWrapper era={era}>
+          <GameWrapper era={era} bgImage={bgImage}>
               <div className="min-h-screen flex flex-col items-center justify-center p-8 relative">
                   <button onClick={() => setView('SPLIT')} className="absolute top-8 left-8 btn-paper px-4 py-2 flex items-center gap-2 text-xs">
                       <ArrowRight className="rotate-180" size={14}/> Til baka
                   </button>
                   
-                  <h1 className="text-5xl font-header mb-12">Veldu Leikmáta</h1>
+                  <h1 className="text-5xl font-header mb-12 drop-shadow-lg">Veldu Leikmáta</h1>
                   
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-8 max-w-4xl w-full">
                       <button 
                           onClick={() => { setGameMode('TYCOON'); setView('GAME'); }}
-                          className="paper-card p-12 flex flex-col items-center text-center gap-6 hover:scale-105 transition-transform group"
+                          className="paper-card p-12 flex flex-col items-center text-center gap-6 hover:scale-105 transition-transform group backdrop-blur-sm bg-opacity-90"
                       >
                           <div className="w-24 h-24 bg-black/5 rounded-full flex items-center justify-center group-hover:bg-black/10 transition-colors">
                               <LayoutGrid size={48} className="text-accent"/>
@@ -701,7 +853,7 @@ function App() {
 
                       <button 
                           onClick={() => { setGameMode('BOARD'); setView('GAME'); }}
-                          className="paper-card p-12 flex flex-col items-center text-center gap-6 hover:scale-105 transition-transform group"
+                          className="paper-card p-12 flex flex-col items-center text-center gap-6 hover:scale-105 transition-transform group backdrop-blur-sm bg-opacity-90"
                       >
                           <div className="w-24 h-24 bg-black/5 rounded-full flex items-center justify-center group-hover:bg-black/10 transition-colors">
                               <MapPinned size={48} className="text-accent"/>
@@ -719,7 +871,7 @@ function App() {
   }
 
   return (
-      <GameWrapper era={era}>
+      <GameWrapper era={era} bgImage={bgImage}>
           {gameMode === 'TYCOON' ? (
               <TycoonGame era={era} onExit={() => setView('MODE_SELECT')} />
           ) : (
