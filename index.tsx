@@ -525,8 +525,8 @@ const RenderBoard = ({ board, players }: { board: BoardSpace[], players: Player[
     );
 };
 
-// Added key to prop types to resolve TypeScript errors at call sites in RenderBoard.
-const Space = ({ space, players, vertical = false }: { space: BoardSpace, players: Player[], vertical?: boolean, key?: React.Key }) => {
+// Removed 'key' from prop types
+const Space = ({ space, players, vertical = false }: { space: BoardSpace, players: Player[], vertical?: boolean }) => {
   const [show, setShow] = useState(false);
   const playersHere = players.filter(p => p.position === space.id);
   
