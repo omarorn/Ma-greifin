@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { createRoot } from 'react-dom/client';
 import { GoogleGenAI, Type } from "@google/genai";
-import { Ship, Anchor, Fish, Utensils, Skull, Dice5, Coins, User, Waves, MapPin, Sailboat, LifeBuoy, TrendingUp, TrendingDown, Settings, Bot, Play } from 'lucide-react';
+import { Ship, Anchor, Fish, Utensils, Skull, Dice5, Coins, User, Waves, MapPin, Sailboat, LifeBuoy, TrendingUp, TrendingDown, Settings, Bot, Play, Info } from 'lucide-react';
 
 // --- Constants & Types ---
 
@@ -151,9 +151,9 @@ function App() {
 
   const generatePropertyImage = async (spaceId: number, name: string, type: string) => {
     try {
-      addLog(`Generating visual for ${name}...`, 'info');
+      addLog(`Generating assets for ${name}...`, 'info');
       
-      const response = await ai.models.generateContent({
+      const imagePromise = ai.models.generateContent({
         model: 'gemini-2.5-flash-image',
         contents: {
           parts: [
@@ -165,20 +165,34 @@ function App() {
         }
       });
 
+      const textPromise = ai.models.generateContent({
+        model: 'gemini-3-flash-preview',
+        contents: `Write a very short (max 15 words), witty or atmospheric description in Icelandic for a board game space. The space is a ${type === 'BOAT' ? 'fishing boat' : 'harbor restaurant'} named "${name}".`
+      });
+
+      const [imageResponse, textResponse] = await Promise.all([imagePromise, textPromise]);
+
       let imageUrl = "";
-      for (const part of response.candidates?.[0]?.content?.parts || []) {
+      for (const part of imageResponse.candidates?.[0]?.content?.parts || []) {
         if (part.inlineData) {
           imageUrl = `data:image/png;base64,${part.inlineData.data}`;
         }
       }
 
-      if (imageUrl) {
-        setBoard(prev => prev.map(s => s.id === spaceId ? { ...s, imageUrl, isGenerated: true } : s));
-        addLog(`Visual generated for ${name}!`, 'success');
+      const description = textResponse.text?.trim() || "";
+
+      if (imageUrl || description) {
+        setBoard(prev => prev.map(s => s.id === spaceId ? { 
+          ...s, 
+          imageUrl: imageUrl || s.imageUrl, 
+          description: description || s.description, 
+          isGenerated: true 
+        } : s));
+        addLog(`Assets generated for ${name}!`, 'success');
       }
     } catch (e) {
       console.error("AI Error", e);
-      addLog("Failed to generate image. The sea is foggy.", 'alert');
+      addLog("Failed to generate assets. The sea is foggy.", 'alert');
     }
   };
 
@@ -743,6 +757,7 @@ interface SpaceCardProps {
 }
 
 const SpaceCard: React.FC<SpaceCardProps> = ({ space, players, vertical = false }) => {
+  const [showInfo, setShowInfo] = useState(false);
   const playersHere = players.filter(p => p.position === space.id);
   
   const baseClasses = `relative flex-1 bg-white border border-[#2d5a68]/30 rounded shadow-sm p-2 transition-all hover:z-10 hover:scale-105 overflow-hidden group`;
@@ -756,7 +771,27 @@ const SpaceCard: React.FC<SpaceCardProps> = ({ space, players, vertical = false 
          <div className={`absolute inset-0 opacity-10 ${space.type === 'BOAT' ? 'bg-blue-500' : space.type === 'RESTAURANT' ? 'bg-orange-500' : 'bg-gray-400'}`}></div>
       )}
 
-      <div className="relative z-10 flex flex-col h-full justify-between items-center text-center">
+      {/* Info Button */}
+      {(space.type === 'BOAT' || space.type === 'RESTAURANT') && (
+        <button 
+          onClick={(e) => { e.stopPropagation(); setShowInfo(!showInfo); }}
+          className="absolute top-1 right-1 z-20 bg-white/80 p-1 rounded-full text-[#2d5a68] hover:bg-white hover:scale-110 transition-all shadow-sm"
+        >
+          <Info size={12} />
+        </button>
+      )}
+
+      {/* Info Overlay */}
+      {showInfo && (
+        <div 
+          className="absolute inset-0 z-30 bg-[#2d5a68]/95 p-2 flex flex-col items-center justify-center text-center animate-fade-in"
+          onClick={(e) => { e.stopPropagation(); setShowInfo(false); }}
+        >
+          <p className="text-white text-[10px] leading-tight font-serif italic">{space.description || "Engin lýsing."}</p>
+        </div>
+      )}
+
+      <div className="relative z-10 flex flex-col h-full justify-between items-center text-center pointer-events-none">
         
         <div className="text-[#2d5a68]">
            {space.type === 'BOAT' && <Ship size={16} />}
