@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { createRoot } from 'react-dom/client';
-import { Ship, Anchor, Fish, Coins, User, Waves, Bot, Play, Sparkles, AlertTriangle, X, ScrollText, Save, Trash2, ArrowRight, ShoppingCart, Map, DollarSign, Search, Calendar, Briefcase, FileText, Wrench, Clock, Battery, TrendingUp, TrendingDown, Minus, Dice5, Newspaper, Users, Medal, Navigation, Loader2, ExternalLink } from 'lucide-react';
+import { Ship, Anchor, Fish, Coins, User, Waves, Bot, Play, Sparkles, AlertTriangle, X, ScrollText, Save, Trash2, ArrowRight, ShoppingCart, Map as MapIcon, DollarSign, Search, Calendar, Briefcase, FileText, Wrench, Clock, Battery, TrendingUp, TrendingDown, Minus, Dice5, Newspaper, Users, Medal, Navigation, Loader2, ExternalLink } from 'lucide-react';
 import { GoogleGenAI } from "@google/genai";
 
 // --- Configuration ---
@@ -494,7 +494,7 @@ function App() {
   const GameSelector = () => (
       <div className="fixed bottom-0 left-0 right-0 bg-header border-t-4 border-[#5d4037] p-2 flex justify-center gap-4 z-50 shadow-2xl">
           <button onClick={() => setView('BOARD')} className={`btn-paper flex items-center gap-2 px-6 py-2 ${view === 'BOARD' ? 'bg-[#d7ccc8]' : ''}`}>
-              <Map size={18}/> <span className="hidden sm:inline">Spilaborð</span>
+              <MapIcon size={18}/> <span className="hidden sm:inline">Spilaborð</span>
           </button>
           <button onClick={() => setView('MANAGE')} className={`btn-paper flex items-center gap-2 px-6 py-2 ${view === 'MANAGE' ? 'bg-[#d7ccc8]' : ''}`}>
               <Briefcase size={18}/> <span className="hidden sm:inline">Rekstur</span>
@@ -660,7 +660,7 @@ function App() {
                           <h3 className="font-header text-xl">Engar eignir fundust</h3>
                           <p className="font-typewriter mt-2 opacity-70">Þú verður að kaupa fyrirtæki á spilaborðinu til að reka þau.</p>
                           <button onClick={() => setView('BOARD')} className="btn-paper mt-6 inline-flex items-center gap-2">
-                              <Map size={16}/> Fara á borð
+                              <MapIcon size={16}/> Fara á borð
                           </button>
                       </div>
                   ) : (
