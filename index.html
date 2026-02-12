@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Maí Greifinn</title>
+    <title>Maí Greifinn AI</title>
     <script type="importmap">
     {
       "imports": {
@@ -17,13 +17,50 @@
     </script>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
-      @import url('https://fonts.googleapis.com/css2?family=Merriweather:ital,wght@0,300;0,400;0,700;1,300;1,400&display=swap');
-      body { font-family: 'Merriweather', serif; }
-      .font-sans { font-family: system-ui, -apple-system, sans-serif; }
-      @keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
-      .animate-fade-in { animation: fade-in 0.3s ease-out; }
-      @keyframes pop-in { from { transform: scale(0.9); opacity: 0; } to { transform: scale(1); opacity: 1; } }
-      .animate-pop-in { animation: pop-in 0.3s cubic-bezier(0.18, 0.89, 0.32, 1.28); }
+      @import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@400;700&family=Inter:wght@300;400;600&display=swap');
+      
+      body { 
+        font-family: 'Inter', sans-serif;
+        background-color: #0f172a;
+        background-image: 
+          radial-gradient(at 0% 0%, rgba(56, 189, 248, 0.15) 0px, transparent 50%),
+          radial-gradient(at 100% 0%, rgba(14, 165, 233, 0.15) 0px, transparent 50%),
+          radial-gradient(at 100% 100%, rgba(5, 150, 105, 0.15) 0px, transparent 50%);
+        background-attachment: fixed;
+        color: #e2e8f0;
+        overflow-x: hidden;
+      }
+      
+      .font-serif { font-family: 'Cinzel', serif; }
+      
+      /* Glassmorphism Utilities */
+      .glass-panel {
+        background: rgba(30, 41, 59, 0.7);
+        backdrop-filter: blur(12px);
+        -webkit-backdrop-filter: blur(12px);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+      }
+      
+      .glass-card {
+        background: rgba(255, 255, 255, 0.05);
+        backdrop-filter: blur(8px);
+        border: 1px solid rgba(255, 255, 255, 0.05);
+        transition: all 0.3s ease;
+      }
+      
+      .glass-card:hover {
+        background: rgba(255, 255, 255, 0.1);
+        border-color: rgba(255, 255, 255, 0.2);
+        box-shadow: 0 0 20px rgba(56, 189, 248, 0.2);
+      }
+
+      /* Animations */
+      @keyframes float { 0% { transform: translateY(0px); } 50% { transform: translateY(-5px); } 100% { transform: translateY(0px); } }
+      .animate-float { animation: float 6s ease-in-out infinite; }
+      
+      @keyframes pulse-glow { 0%, 100% { box-shadow: 0 0 10px rgba(56, 189, 248, 0.2); } 50% { box-shadow: 0 0 25px rgba(56, 189, 248, 0.5); } }
+      .animate-pulse-glow { animation: pulse-glow 2s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
+
     </style>
 </head>
 <body>
