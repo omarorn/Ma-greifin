@@ -1,0 +1,4 @@
+
+codex mcp add serena -- uvx --from git+https://github.com/oraios/serena serena start-mcp-server --context claude-code --project "$(pwd)"
+
+codex mcp add context7 -- npx -y @upstash/context7-mcp
