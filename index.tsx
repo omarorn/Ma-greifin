@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { createRoot } from 'react-dom/client';
-import { GoogleGenAI, GenerateContentResponse } from "@google/genai";
+import { GoogleGenAI, GenerateContentResponse, Type } from "@google/genai";
 import { 
     Save, Trash2, Play, Sparkles, Loader2, User, Bot, Smartphone, Ship, 
     Anchor, Fish, Utensils, Dice1, Dice2, Dice3, Dice4, Dice5, Dice6, 
@@ -8,7 +8,7 @@ import {
     QrCode, MessageSquare, Wifi, WifiOff, Heart, ChevronLeft, ChevronRight, 
     Clapperboard, ScrollText, Volume2, Users, Vibrate, TrendingUp, 
     CloudLightning, Sun, Cloud, Snowflake, Trophy, MapPin, Clock, 
-    Maximize2, Minimize2, Skull, Crown, Lock
+    Maximize2, Minimize2, Skull, Crown, Lock, Globe, Paintbrush
 } from 'lucide-react';
 
 // --- Constants & Types ---
@@ -16,18 +16,17 @@ import {
 const BOARD_SIZE = 16;
 const START_MONEY = 1500;
 const MAX_HUNGER = 12;
-const SAVE_KEY = 'maigreifinn_save_v2';
+const SAVE_KEY = 'maigreifinn_save_v4';
 const BAIL_PRICE = 50;
 
-// Faster AI Timings
 const AI_THINK_TIME = 800;
 const AI_ACTION_DELAY = 600;
 
 type SpaceType = 'START' | 'BOAT' | 'RESTAURANT' | 'CHANCE' | 'STORM' | 'JAIL' | 'GO_TO_JAIL' | 'FREE_PARKING';
 type BoatType = 'TRAWLER' | 'SAILBOAT' | 'DINGHY' | 'YACHT';
-type Lang = 'IS' | 'EN';
 type WeatherType = 'SUNNY' | 'STORM' | 'AURORA' | 'FOG';
 
+// Fallbacks only used if generation fails
 const PREMADE_IMAGES = {
   START: "https://images.unsplash.com/photo-1534447677768-be436bb09401?w=400&h=400&fit=crop&q=80",
   BOAT: "https://images.unsplash.com/photo-1544979590-2c00a307c433?w=400&h=400&fit=crop&q=80",
@@ -36,16 +35,6 @@ const PREMADE_IMAGES = {
   CHANCE: "https://images.unsplash.com/photo-1500375592092-40eb2168fd21?w=400&h=400&fit=crop&q=80",
   JAIL: "https://images.unsplash.com/photo-1503751071777-d2918b21bbd9?w=400&h=400&fit=crop&q=80"
 };
-
-const ADS = [
-    "Hampiðjan - Traust net síðan 1934",
-    "66° Norður - Klæddu þig vel í brælunni",
-    "Sjóvá - Trygging fyrir trillukarla",
-    "Kaffivagninn - Besta kaffið á bryggjunni",
-    "Olís - Olía á bátinn, pylsa í magann",
-    "Ísbjörninn - Ferskur fiskur alla daga",
-    "Bónus - Ekki vera svangur á sjó"
-];
 
 interface BoardSpace {
   id: number;
@@ -57,7 +46,6 @@ interface BoardSpace {
   imageUrl?: string;
   description?: string;
   isGenerated?: boolean;
-  isGeneratedImage?: boolean;
 }
 
 interface FateOption {
@@ -120,7 +108,6 @@ const T = {
     money: "Peningar",
     feed: "FRÉTTIR ÚR FYRSTU HENDI",
     players: "STIGATAFLA",
-    clickToRoll: "HRISTU SÍMANN EÐA SMELLTU!",
     fate: "ÖRLÖGIN",
     ai_thinking: "Gervigreindin er að pæla...",
     shake: "Hristingur fannst!",
@@ -137,32 +124,6 @@ const T = {
     winner: "SIGURVEGARI!",
   }
 };
-
-// --- Initial Data ---
-
-const INITIAL_BOARD: BoardSpace[] = [
-  { id: 0, name: "Reykjavíkurhöfn", type: 'START', description: "Safe haven.", imageUrl: PREMADE_IMAGES.START },
-  { id: 1, name: "Jón Páll", type: 'BOAT', price: 100, rent: 20, imageUrl: PREMADE_IMAGES.BOAT },
-  { id: 2, name: "Sjómannalífið", type: 'CHANCE', imageUrl: PREMADE_IMAGES.CHANCE },
-  { id: 3, name: "Kjallarinn", type: 'RESTAURANT', price: 150, rent: 30, imageUrl: PREMADE_IMAGES.RESTAURANT },
-  { id: 4, name: "Gunnvör", type: 'BOAT', price: 180, rent: 35, imageUrl: PREMADE_IMAGES.BOAT },
-  { id: 5, name: "Landhelgisgæslan", type: 'GO_TO_JAIL', imageUrl: PREMADE_IMAGES.STORM }, // Corner 1
-  { id: 6, name: "Humarvagninn", type: 'RESTAURANT', price: 200, rent: 40, imageUrl: PREMADE_IMAGES.RESTAURANT },
-  { id: 7, name: "Sæbjörg", type: 'BOAT', price: 220, rent: 45, imageUrl: PREMADE_IMAGES.BOAT },
-  { id: 8, name: "Kaffistofan", type: 'FREE_PARKING', imageUrl: PREMADE_IMAGES.START }, // Corner 2
-  { id: 9, name: "Harpa", type: 'BOAT', price: 240, rent: 50, imageUrl: PREMADE_IMAGES.BOAT },
-  { id: 10, name: "Sjómannalífið", type: 'CHANCE', imageUrl: PREMADE_IMAGES.CHANCE },
-  { id: 11, name: "Sægreifinn", type: 'RESTAURANT', price: 350, rent: 70, imageUrl: PREMADE_IMAGES.RESTAURANT },
-  { id: 12, name: "Sjóli", type: 'BOAT', price: 260, rent: 55, imageUrl: PREMADE_IMAGES.BOAT },
-  { id: 13, name: "Sjófangelsið", type: 'JAIL', imageUrl: PREMADE_IMAGES.JAIL }, // Corner 3
-  { id: 14, name: "Moby Dick", type: 'BOAT', price: 300, rent: 60, imageUrl: PREMADE_IMAGES.BOAT },
-  { id: 15, name: "Bryggjan", type: 'RESTAURANT', price: 280, rent: 60, imageUrl: PREMADE_IMAGES.RESTAURANT },
-];
-
-const DEFAULT_PLAYERS: Player[] = [
-  { id: 0, name: "Human Captain", color: "bg-amber-500", position: 0, money: START_MONEY, hunger: 0, karma: 0, isJailed: false, isBankrupt: false, inventory: [], isAi: false, boatType: 'TRAWLER' },
-  { id: 1, name: "AI Rival", color: "bg-cyan-500", position: 0, money: START_MONEY, hunger: 0, karma: 0, isJailed: false, isBankrupt: false, inventory: [], isAi: true, boatType: 'YACHT' },
-];
 
 // --- Helpers ---
 
@@ -188,12 +149,17 @@ const getNetWorth = (player: Player, board: BoardSpace[]) => {
     return player.money + propertyValue;
 };
 
+const DEFAULT_PLAYERS: Player[] = [
+  { id: 0, name: "Kapteinn", color: "bg-amber-500", position: 0, money: START_MONEY, hunger: 0, karma: 0, isJailed: false, isBankrupt: false, inventory: [], isAi: false, boatType: 'TRAWLER' },
+  { id: 1, name: "Rival AI", color: "bg-cyan-500", position: 0, money: START_MONEY, hunger: 0, karma: 0, isJailed: false, isBankrupt: false, inventory: [], isAi: true, boatType: 'YACHT' },
+];
+
 // --- Main App Component ---
 
 function App() {
-  const [view, setView] = useState<'LOBBY' | 'GAME'>('LOBBY');
+  const [view, setView] = useState<'LOBBY' | 'MAKER' | 'GAME' | 'VICTORY'>('LOBBY');
   const [players, setPlayers] = useState<Player[]>(DEFAULT_PLAYERS);
-  const [board, setBoard] = useState<BoardSpace[]>(INITIAL_BOARD);
+  const [board, setBoard] = useState<BoardSpace[]>([]);
   const [turn, setTurn] = useState(0);
   const [round, setRound] = useState(1);
   const [totalTurns, setTotalTurns] = useState(0);
@@ -204,29 +170,25 @@ function App() {
   const [bgImage, setBgImage] = useState<string | null>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [winner, setWinner] = useState<Player | null>(null);
+  const [gameTheme, setGameTheme] = useState("Icelandic Fishing Industry");
   
-  // Dice Animation State
   const [isDiceRolling, setIsDiceRolling] = useState(false);
   const [diceDisplay, setDiceDisplay] = useState(5);
-
-  // Weather & Map State
   const [weather, setWeather] = useState<WeatherType>('SUNNY');
   const [icelandMapUrl, setIcelandMapUrl] = useState<string | null>(null);
   
-  // Video/Story State
   const [voyagePlaylist, setVoyagePlaylist] = useState<VoyageChapter[]>([]);
   const [viewingChapter, setViewingChapter] = useState(-1);
   const [isGeneratingVideo, setIsGeneratingVideo] = useState(false);
   const [hasSave, setHasSave] = useState(false);
 
-  // Refs
+  // Refs for access inside callbacks
   const gameStateRef = useRef(gameState);
   const turnRef = useRef(turn);
   const playersRef = useRef(players);
   const viewRef = useRef(view);
   const generatingDescriptions = useRef(new Set<number>());
 
-  // Sync refs
   useEffect(() => { gameStateRef.current = gameState; }, [gameState]);
   useEffect(() => { turnRef.current = turn; }, [turn]);
   useEffect(() => { playersRef.current = players; }, [players]);
@@ -235,87 +197,22 @@ function App() {
   const currentPlayer = players[turn];
   const t = T.IS;
 
-  // Load BG
+  // Initial Check for Save
   useEffect(() => {
-    const loadBg = async () => {
-        try {
-            const ai = getAi();
-            const res = await withRetry<GenerateContentResponse>(() => ai.models.generateContent({
-                model: 'gemini-2.5-flash-image',
-                contents: { parts: [{ text: "Cinematic dark moody icelandic ocean storm, northern lights, wide angle, matte painting style" }] }
-            }));
-            const imgData = res.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
-            if (imgData) setBgImage(`data:image/png;base64,${imgData}`);
-        } catch(e) { console.error("BG Gen failed", e); }
-    };
-    if (!bgImage && view === 'GAME') loadBg();
-    
-    // Initial Map Gen if missing
-    if (!icelandMapUrl && view === 'GAME') updateIcelandMap('SUNNY');
-  }, [view]);
-
-  // Update Map on Weather Change
-  useEffect(() => {
-     if (view === 'GAME') updateIcelandMap(weather);
-  }, [weather, view]);
-
-  const updateIcelandMap = async (w: WeatherType) => {
-      try {
-          const ai = getAi();
-          const weatherPrompts = {
-              'SUNNY': 'sunny, clear skies, green land',
-              'STORM': 'heavy storm, dark clouds, rough seas, rain',
-              'AURORA': 'night time, northern lights, aurora borealis, stars',
-              'FOG': 'thick fog, misty, mysterious'
-          };
-          
-          const prompt = `A top-down stylized board game map of Iceland in the center, ${weatherPrompts[w]}, surrounded by ocean. High detail, fantasy map style, neutral background.`;
-          
-          const res = await withRetry<GenerateContentResponse>(() => ai.models.generateContent({
-              model: 'gemini-2.5-flash-image',
-              contents: { parts: [{ text: prompt }] }
-          }));
-          const imgData = res.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
-          if (imgData) setIcelandMapUrl(`data:image/png;base64,${imgData}`);
-      } catch (e) {
-          console.error("Map Gen failed", e);
-      }
-  };
-
-  // Check for save file
-  useEffect(() => {
-      try {
-          const saved = localStorage.getItem(SAVE_KEY);
-          if (saved) setHasSave(true);
-      } catch (e) { console.error("Error reading save", e); }
+      try { const saved = localStorage.getItem(SAVE_KEY); if (saved) setHasSave(true); } catch (e) {}
   }, []);
 
-  // --- OPTIMIZED AUTOSAVE ---
+  // Autosave
   useEffect(() => {
       if (view === 'GAME' && gameState !== 'GAME_OVER') {
           const timer = setTimeout(() => {
               try {
-                  const optimizedBoard = board.map(b => ({
-                      ...b,
-                      imageUrl: b.isGeneratedImage ? undefined : b.imageUrl,
-                      isGeneratedImage: b.isGeneratedImage ? false : false
-                  }));
+                  const optimizedBoard = board.map(b => ({ ...b, imageUrl: b.imageUrl?.startsWith('data:') ? undefined : b.imageUrl }));
                   const optimizedPlaylist = voyagePlaylist.map(c => ({ ...c, url: '' }));
-                  const optimizedPlayers = players.map(p => ({
-                       ...p,
-                       portraitUrl: p.portraitUrl && p.portraitUrl.startsWith('data:') ? undefined : p.portraitUrl
-                  }));
-
+                  const optimizedPlayers = players.map(p => ({ ...p, portraitUrl: p.portraitUrl?.startsWith('data:') ? undefined : p.portraitUrl }));
                   const state = {
-                      players: optimizedPlayers, 
-                      board: optimizedBoard, 
-                      turn, 
-                      round, 
-                      totalTurns, 
-                      market, 
-                      logs: logs.slice(0, 50),
-                      voyagePlaylist: optimizedPlaylist, 
-                      weather 
+                      players: optimizedPlayers, board: optimizedBoard, turn, round, totalTurns, 
+                      market, logs: logs.slice(0, 30), voyagePlaylist: optimizedPlaylist, weather, gameTheme 
                   };
                   localStorage.setItem(SAVE_KEY, JSON.stringify(state));
               } catch (e) { console.error("Autosave failed", e); }
@@ -324,8 +221,6 @@ function App() {
       }
   }, [players, board, turn, round, totalTurns, market, logs, voyagePlaylist, view, weather, gameState]);
 
-
-  // Log helper
   const addLog = (text: string, type: GameLog['type'] = 'info') => {
     const time = new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
     setLogs(prev => [{ id: Date.now(), text, type, timestamp: time }, ...prev].slice(50));
@@ -336,6 +231,7 @@ function App() {
       if (activePlayers.length === 1 && players.length > 1) {
           setWinner(activePlayers[0]);
           setGameState('GAME_OVER');
+          setView('VICTORY');
           addLog(`${activePlayers[0].name} has won the game!`, 'success');
       }
   }, [players]);
@@ -349,47 +245,37 @@ function App() {
               if (data.board) setBoard(data.board);
               if (data.turn !== undefined) setTurn(data.turn);
               if (data.round !== undefined) setRound(data.round);
-              if (data.totalTurns !== undefined) setTotalTurns(data.totalTurns);
               if (data.market) setMarket(data.market);
               if (data.logs) setLogs(data.logs);
-              if (data.voyagePlaylist) setVoyagePlaylist(data.voyagePlaylist);
-              if (data.weather) setWeather(data.weather);
-              
+              if (data.gameTheme) setGameTheme(data.gameTheme);
               setView('GAME');
-              addLog("Voyage Resumed. Visuals reset to save space.", 'notification');
           }
-      } catch(e) {
-          console.error("Failed to resume", e);
-          addLog("Failed to load save file.", 'alert');
-      }
+      } catch(e) { addLog("Failed to load save file.", 'alert'); }
   };
 
-  const handleNewGame = () => {
-      localStorage.removeItem(SAVE_KEY);
-      setHasSave(false);
+  const handleStartMaker = () => {
+      setView('MAKER');
+  }
+
+  const handleNewGame = (generatedBoard: BoardSpace[]) => {
+      setBoard(generatedBoard);
       setPlayers(prev => prev.map(p => ({...p, isBankrupt: false, money: START_MONEY, inventory: [], position: 0})));
-      setBoard(INITIAL_BOARD);
       setView('GAME');
       setWinner(null);
       setGameState('IDLE');
-      addLog("New Voyage Started.", 'success');
+      addLog("The Voyage Begins!", 'success');
   };
 
-  const handleClearSave = () => {
-      localStorage.removeItem(SAVE_KEY);
-      setHasSave(false);
-  }
+  const handleClearSave = () => { localStorage.removeItem(SAVE_KEY); setHasSave(false); };
 
-  // --- Slideshow & Interactions ---
-  
+  // --- Slideshow Helpers ---
   const handlePrevSlide = (e?: React.MouseEvent) => {
     e?.stopPropagation();
     if (voyagePlaylist.length === 0) return;
     const current = viewingChapter === -1 ? 0 : viewingChapter;
     if (current < voyagePlaylist.length - 1) {
-        const newIndex = current + 1;
-        setViewingChapter(newIndex);
-        if (voyagePlaylist[newIndex]?.url) setBgImage(voyagePlaylist[newIndex].url);
+        setViewingChapter(current + 1);
+        if (voyagePlaylist[current + 1]?.url) setBgImage(voyagePlaylist[current + 1].url);
     }
   };
 
@@ -398,9 +284,8 @@ function App() {
     if (voyagePlaylist.length === 0) return;
     const current = viewingChapter === -1 ? 0 : viewingChapter;
     if (current > 0) {
-        const newIndex = current - 1;
-        setViewingChapter(newIndex);
-        if (voyagePlaylist[newIndex]?.url) setBgImage(voyagePlaylist[newIndex].url);
+        setViewingChapter(current - 1);
+        if (voyagePlaylist[current - 1]?.url) setBgImage(voyagePlaylist[current - 1].url);
     }
   };
 
@@ -410,25 +295,19 @@ function App() {
         window.speechSynthesis.cancel();
         const utterance = new SpeechSynthesisUtterance(text);
         utterance.rate = 0.9;
-        const voices = window.speechSynthesis.getVoices();
-        const isVoice = voices.find(v => v.lang.includes('is'));
-        if (isVoice) utterance.voice = isVoice;
         window.speechSynthesis.speak(utterance);
     }
   };
 
-  // --- Dice Logic ---
-  
+  // --- Game Loop ---
+
   const triggerDiceRoll = () => {
       if (isDiceRolling || gameStateRef.current !== 'IDLE') return;
       setIsDiceRolling(true);
-      
       let count = 0;
-      const maxCount = 10;
       const interval = setInterval(() => {
           setDiceDisplay(Math.floor(Math.random() * 6) + 1);
-          count++;
-          if (count >= maxCount) {
+          if (++count >= 8) {
               clearInterval(interval);
               setIsDiceRolling(false);
               handleRoll(false);
@@ -436,81 +315,39 @@ function App() {
       }, 80);
   };
 
-  // Shake
-  useEffect(() => {
-      let lastShake = 0;
-      const handleMotion = (event: DeviceMotionEvent) => {
-          if (viewRef.current !== 'GAME') return;
-          const now = Date.now();
-          if (now - lastShake < 1000) return;
-          const accel = event.accelerationIncludingGravity;
-          if (!accel || !accel.x || !accel.y || !accel.z) return;
-          const acceleration = Math.sqrt(accel.x*accel.x + accel.y*accel.y + accel.z*accel.z);
-          if (acceleration > 20) {
-              const currentP = playersRef.current[turnRef.current];
-              const isHuman = !currentP.isAi;
-              if (gameStateRef.current === 'IDLE' && isHuman && !isDiceRolling && !currentP.isJailed) {
-                  lastShake = now;
-                  addLog(t.shake, 'info');
-                  if (navigator.vibrate) navigator.vibrate(200);
-                  triggerDiceRoll();
-              }
-          }
-      };
-      if (typeof window !== 'undefined' && window.DeviceMotionEvent) {
-          window.addEventListener('devicemotion', handleMotion);
-      }
-      return () => {
-          if (typeof window !== 'undefined' && window.DeviceMotionEvent) {
-              window.removeEventListener('devicemotion', handleMotion);
-          }
-      };
-  }, [isDiceRolling]);
-
-  // AI Logic
+  // AI Turn Logic
   useEffect(() => {
     if (view === 'GAME' && gameState === 'IDLE') {
         const isAi = currentPlayer.isAi;
         if (isAi && !currentPlayer.isBankrupt) {
-            const timer = setTimeout(() => {
+            setTimeout(() => {
                 if (currentPlayer.isJailed) {
-                    if (currentPlayer.money >= BAIL_PRICE && Math.random() > 0.3) {
-                         payBail(true);
-                    } else {
-                         handleRoll(true);
-                    }
-                } else {
-                    handleRoll(true);
-                }
+                    if (currentPlayer.money >= BAIL_PRICE && Math.random() > 0.3) payBail(true);
+                    else handleRoll(true);
+                } else handleRoll(true);
             }, AI_THINK_TIME);
-            return () => clearTimeout(timer);
-        } else if (currentPlayer.isBankrupt) {
-             // Skip bankrupt player
-             endTurn(true);
-        }
+        } else if (currentPlayer.isBankrupt) endTurn(true);
     }
   }, [turn, view, gameState, currentPlayer]);
-
-  // --- Game Mechanics ---
 
   const handleRoll = useCallback(async (isAuto = false) => {
     if (gameStateRef.current !== 'IDLE') return;
     setGameState(isAuto ? 'AI_THINKING' : 'MOVING');
     
-    if (!isAuto) await new Promise(r => setTimeout(r, 600));
-    else await new Promise(r => setTimeout(r, 300));
+    // Quick delay for feel
+    await new Promise(r => setTimeout(r, 400));
 
     const roll = Math.floor(Math.random() * 6) + 1;
     const currentP = playersRef.current[turnRef.current];
 
     if (currentP.isJailed) {
         if (roll === 6) {
-            addLog(`${currentP.name} kastaði 6 og slapp úr fangelsi!`, 'success');
-             setPlayers(prev => prev.map(p => p.id === currentP.id ? { ...p, isJailed: false } : p));
+            addLog(`${currentP.name} rolls a 6 and escapes jail!`, 'success');
+            setPlayers(prev => prev.map(p => p.id === currentP.id ? { ...p, isJailed: false } : p));
         } else {
-             addLog(`${currentP.name} kastaði ${roll} og situr fastur.`, 'alert');
-             setTimeout(() => endTurn(isAuto), AI_ACTION_DELAY);
-             return;
+            addLog(`${currentP.name} rolls ${roll} and stays in jail.`, 'alert');
+            setTimeout(() => endTurn(isAuto), AI_ACTION_DELAY);
+            return;
         }
     }
     
@@ -519,260 +356,145 @@ function App() {
         let newPos = (p.position + roll) % BOARD_SIZE;
         let newMoney = p.money;
         let newHunger = p.hunger + 1;
-        let didPassGo = false;
         
         if (newPos < p.position) {
-           didPassGo = true;
            newMoney += 200;
            newHunger = Math.max(0, newHunger - 1);
-        }
-        
-        if (didPassGo) {
-             addLog(`${p.name} fer yfir byrjunarreit. +200kr`, 'success');
-             setRound(r => r + 1);
-             const weathers: WeatherType[] = ['SUNNY', 'STORM', 'AURORA', 'FOG'];
-             setWeather(weathers[Math.floor(Math.random() * weathers.length)]);
-             if (Math.random() > 0.6) {
-                const boom = Math.random() > 0.5;
-                setMarket({
+           addLog(`${p.name} passes Start. +200kr`, 'success');
+           setRound(r => r + 1);
+           const weathers: WeatherType[] = ['SUNNY', 'STORM', 'AURORA', 'FOG'];
+           setWeather(weathers[Math.floor(Math.random() * weathers.length)]);
+           // Market flux
+           if (Math.random() > 0.6) {
+               const boom = Math.random() > 0.5;
+               setMarket({
                    fishPrice: boom ? 1.5 : 0.6,
                    meatPrice: boom ? 1.4 : 0.7,
                    trend: boom ? 'BOOM' : 'CRASH'
-                });
-                addLog(boom ? "MARKAÐURINN BLÓMSTRAR!" : "MARKAÐSHRUN!", boom ? 'success' : 'alert');
-             }
+               });
+               addLog(boom ? "MARKET BOOM!" : "MARKET CRASH!", boom ? 'success' : 'alert');
+           }
         }
         
         if (newHunger >= MAX_HUNGER) {
-           addLog(`${p.name} féll í yfirlið vegna hungurs! (-100kr, Byrjunarreitur)`, 'alert');
-           newPos = 0;
-           newMoney = Math.max(0, newMoney - 100);
-           newHunger = 0;
+           addLog(`${p.name} fainted from hunger! (-100kr, Sent to Start)`, 'alert');
+           newPos = 0; newMoney = Math.max(0, newMoney - 100); newHunger = 0;
         }
 
         const updated = [...prevPlayers];
-        updated[turnRef.current] = {
-            ...p,
-            position: newPos,
-            money: newMoney,
-            hunger: newHunger,
-            isJailed: false // Ensure reset if they escaped
-        };
+        updated[turnRef.current] = { ...p, position: newPos, money: newMoney, hunger: newHunger, isJailed: false };
         return updated;
     });
 
     const calculatedPos = (currentP.position + roll) % BOARD_SIZE;
-    
-    setTimeout(() => {
-        const space = board[calculatedPos];
-        handleLand(space, isAuto, calculatedPos);
-    }, 100);
-
+    setTimeout(() => handleLand(board[calculatedPos], isAuto, calculatedPos), 200);
   }, [board, players]);
 
   const handleLand = async (space: BoardSpace, isAuto: boolean, pos: number) => {
-    if (!space.isGenerated && !generatingDescriptions.current.has(space.id)) {
-        generateDescription(space);
-    }
-    if (!space.isGeneratedImage) {
-        generateSpaceImage(space);
-    } else if (space.imageUrl) {
-        setBgImage(space.imageUrl);
+    // Generate description if missing (should be rare with World Maker)
+    if (!space.description) {
+        const ai = getAi();
+        ai.models.generateContent({ model: 'gemini-3-flash-preview', contents: `Short description of ${space.name} (${space.type}) in ${gameTheme}.`})
+        .then(res => setBoard(prev => prev.map(s => s.id === space.id ? { ...s, description: res.text } : s)));
     }
 
     if (space.type === 'CHANCE') {
         setGameState('CHOOSING_FATE');
         const options: FateOption[] = [
-            { text: "Stormurinn", description: "Þú siglir í gegnum storm.", type: "RISKY", effect: { money: -50, hunger: 2, karma: 1 } },
-            { text: "Góður Afli", description: "Netin eru full.", type: "SAFE", effect: { money: 100, hunger: 0, karma: 0 } },
-            { text: "Björgun", description: "Þú bjargar bát í vanda.", type: "MORAL", effect: { money: -20, hunger: 1, karma: 5 } }
+            { text: "High Risk", description: "Brave the storm.", type: "RISKY", effect: { money: -50, hunger: 2, karma: 1 } },
+            { text: "Safe Bet", description: "Play it safe.", type: "SAFE", effect: { money: 100, hunger: 0, karma: 0 } },
+            { text: "Charity", description: "Help another.", type: "MORAL", effect: { money: -20, hunger: 1, karma: 5 } }
         ];
         setFateOptions(options);
-        
-        if (isAuto) {
-            setTimeout(() => resolveFate(options[Math.floor(Math.random() * options.length)], true), AI_ACTION_DELAY);
-        }
+        if (isAuto) setTimeout(() => resolveFate(options[Math.floor(Math.random() * options.length)], true), AI_ACTION_DELAY);
     } 
     else if (space.type === 'BOAT' || space.type === 'RESTAURANT') {
-        const currentPName = playersRef.current[turnRef.current].name;
-        const currentPMoney = playersRef.current[turnRef.current].money;
-
+        const curP = playersRef.current[turnRef.current];
         if (space.owner === null || space.owner === undefined) {
             if (isAuto) {
-                const canAfford = currentPMoney >= (space.price || 0);
-                const shouldBuy = canAfford && (currentPMoney > ((space.price || 0) + 200));
-                
-                if (shouldBuy) {
-                    addLog(`${currentPName} ákveður að kaupa ${space.name}.`);
-                    setTimeout(() => buyProperty(true), AI_ACTION_DELAY);
-                } else {
-                    addLog(`${currentPName} siglir framhjá ${space.name}.`);
-                    setTimeout(() => endTurn(true), AI_ACTION_DELAY);
-                }
-            } else {
-                setGameState('IDLE');
-            }
+                if (curP.money >= (space.price || 0) + 100) setTimeout(() => buyProperty(true), AI_ACTION_DELAY);
+                else setTimeout(() => endTurn(true), AI_ACTION_DELAY);
+            } else setGameState('IDLE');
         } else if (space.owner !== turnRef.current) {
             const rent = Math.floor((space.rent || 0) * (space.type === 'BOAT' ? market.fishPrice : market.meatPrice));
-            addLog(`${currentPName} borgar ${rent}kr í leigu til ${playersRef.current[space.owner].name}`, 'alert');
-            
+            addLog(`${curP.name} pays ${rent}kr rent to ${playersRef.current[space.owner].name}`, 'alert');
             setPlayers(prev => {
                 const copy = [...prev];
-                const payer = copy[turnRef.current];
-                const receiver = copy[space.owner!];
-                
-                if (payer.money < rent) {
-                    addLog(`${payer.name} getur ekki borgað og er gjaldþrota!`, 'alert');
-                    payer.money = 0;
-                    payer.isBankrupt = true;
-                } else {
-                    payer.money -= rent;
-                    receiver.money += rent;
-                }
-                
-                if (space.type === 'RESTAURANT') {
-                    payer.hunger = Math.max(0, payer.hunger - 3);
-                }
+                const p = copy[turnRef.current];
+                if (p.money < rent) { p.money = 0; p.isBankrupt = true; }
+                else { p.money -= rent; copy[space.owner!].money += rent; }
+                if (space.type === 'RESTAURANT') p.hunger = Math.max(0, p.hunger - 3);
                 return copy;
             });
             setTimeout(() => endTurn(isAuto), AI_ACTION_DELAY + 400);
         } else {
-            addLog(`${currentPName} hvílir sig í eign sinni.`);
-             if (space.type === 'RESTAURANT') {
-                setPlayers(prev => {
-                    const copy = [...prev];
-                    copy[turnRef.current].hunger = Math.max(0, copy[turnRef.current].hunger - 3);
-                    return copy;
-                });
-            }
+            // Own property
+            if (space.type === 'RESTAURANT') setPlayers(prev => {
+                const copy = [...prev]; copy[turnRef.current].hunger = Math.max(0, copy[turnRef.current].hunger - 3); return copy;
+            });
+            addLog(`${curP.name} rests at their property.`);
             setTimeout(() => endTurn(isAuto), AI_ACTION_DELAY);
         }
     } else {
-        if (space.type === 'STORM') {
+        if (space.type === 'GO_TO_JAIL') {
+            addLog(`ARRESTED! Going to ${board[13].name || 'Jail'}.`, 'alert');
             setPlayers(prev => {
-                const copy = [...prev];
-                copy[turnRef.current].money = Math.max(0, copy[turnRef.current].money - 50);
-                return copy;
+                const copy = [...prev]; copy[turnRef.current].position = 13; copy[turnRef.current].isJailed = true; return copy;
             });
-            addLog("Stormur! Skemmdir á bátnum. -50kr", 'alert');
-            generateVoyageVideo("Boat struggling in heavy storm waves, cinematic");
-        } else if (space.type === 'JAIL' || space.type === 'GO_TO_JAIL') {
-             if (space.type === 'GO_TO_JAIL') {
-                 addLog("Landhelgisgæslan tók þig! Farðu í Sjófangelsið.", 'alert');
-                 setPlayers(prev => {
-                    const copy = [...prev];
-                    copy[turnRef.current].position = 13;
-                    copy[turnRef.current].isJailed = true;
-                    return copy;
-                 });
-             } else {
-                 addLog("Sjófangelsið! Þú ert fastur í neti.", 'alert');
-             }
-             generateVoyageVideo("Gloomy prison cell in a boat hull, cinematic");
-        } else if (space.type === 'FREE_PARKING') {
-             addLog("Kaffistofan - Frítt kaffi og engar áhyggjur.", 'success');
-             generateVoyageVideo("Cozy captains coffee house interior, warm lighting, cinematic");
+            generateVoyageVideo(`Arrested at ${space.name} in style of ${gameTheme}`);
+        } else if (space.type === 'STORM') {
+            addLog("Storm Damage! -50kr", 'alert');
+             setPlayers(prev => {
+                const copy = [...prev]; copy[turnRef.current].money -= 50; return copy;
+            });
         }
         setTimeout(() => endTurn(isAuto), AI_ACTION_DELAY);
     }
   };
 
   const buyProperty = (isAuto: boolean) => {
-      const currentP = playersRef.current[turnRef.current];
-      const space = board[currentP.position];
-      if (space.price && currentP.money >= space.price) {
-          const updatedP = { ...currentP, money: currentP.money - space.price, inventory: [...currentP.inventory, space.id] };
-          setPlayers(prev => prev.map(p => p.id === currentP.id ? updatedP : p));
+      const curP = playersRef.current[turnRef.current];
+      const space = board[curP.position];
+      if (space.price && curP.money >= space.price) {
+          setPlayers(prev => prev.map(p => p.id === curP.id ? { ...p, money: p.money - space.price!, inventory: [...p.inventory, space.id] } : p));
           setBoard(prev => prev.map(s => s.id === space.id ? { ...s, owner: turnRef.current } : s));
-          addLog(`${currentP.name} keypti ${space.name}!`, 'success');
-          generateVoyageVideo(`A proud captain buying the ${space.name} ${space.type.toLowerCase()}, cinematic`);
+          addLog(`${curP.name} bought ${space.name}!`, 'success');
+          generateVoyageVideo(`Buying ${space.name} (${space.type}) in ${gameTheme} style`);
           setTimeout(() => endTurn(isAuto), AI_ACTION_DELAY);
       }
   };
 
   const payBail = (isAuto: boolean) => {
       setPlayers(prev => {
-          const copy = [...prev];
-          const p = copy[turnRef.current];
-          if (p.money >= BAIL_PRICE) {
-              p.money -= BAIL_PRICE;
-              p.isJailed = false;
-              addLog(`${p.name} borgaði sekt og er laus.`, 'info');
-              // Free to move next turn
-              return copy;
-          }
+          const copy = [...prev]; const p = copy[turnRef.current];
+          if (p.money >= BAIL_PRICE) { p.money -= BAIL_PRICE; p.isJailed = false; }
           return copy;
       });
       setTimeout(() => endTurn(isAuto), AI_ACTION_DELAY);
   };
 
-  const resolveFate = (option: FateOption, isAuto: boolean) => {
-      const currentP = playersRef.current[turnRef.current];
-      const updatedP = { 
-          ...currentP, 
-          money: currentP.money + option.effect.money,
-          hunger: currentP.hunger + option.effect.hunger,
-          karma: currentP.karma + option.effect.karma
-      };
-      setPlayers(prev => prev.map(p => p.id === currentP.id ? updatedP : p));
-      addLog(`${currentP.name} valdi: ${option.text}`, 'info');
-      setFateOptions([]);
-      setGameState('IDLE');
-      generateVoyageVideo(`${option.text} event at sea, icelandic style, dramatic lighting`);
+  const resolveFate = (opt: FateOption, isAuto: boolean) => {
+      setPlayers(prev => prev.map(p => p.id === playersRef.current[turnRef.current].id ? { ...p, money: p.money + opt.effect.money, hunger: p.hunger + opt.effect.hunger, karma: p.karma + opt.effect.karma } : p));
+      setFateOptions([]); setGameState('IDLE');
+      generateVoyageVideo(`Fate event: ${opt.text}, ${gameTheme}`);
       setTimeout(() => endTurn(isAuto), AI_ACTION_DELAY);
   };
 
   const endTurn = (isAuto: boolean) => {
       checkVictory();
       if (gameStateRef.current === 'GAME_OVER') return;
-
       let nextTurn = (turn + 1) % players.length;
-      // Skip bankrupt players
       let attempts = 0;
       while (players[nextTurn].isBankrupt && attempts < players.length) {
           nextTurn = (nextTurn + 1) % players.length;
           attempts++;
       }
-
       setTotalTurns(t => t + 1);
       setGameState('IDLE');
       setTurn(nextTurn);
   };
 
   // --- Generation ---
-
-  const generateDescription = async (space: BoardSpace) => {
-      generatingDescriptions.current.add(space.id);
-      try {
-          const ai = getAi();
-          const res = await withRetry<GenerateContentResponse>(() => ai.models.generateContent({
-              model: 'gemini-3-flash-preview',
-              contents: `Write a 1 sentence description of a ${space.type} named ${space.name} in Iceland.`
-          }));
-          setBoard(prev => prev.map(s => s.id === space.id ? { ...s, description: res.text, isGenerated: true } : s));
-      } catch(e) {
-          generatingDescriptions.current.delete(space.id);
-      }
-  };
-
-  const generateSpaceImage = async (space: BoardSpace) => {
-    if (space.isGeneratedImage || generatingDescriptions.current.has(space.id * 100)) return; 
-    generatingDescriptions.current.add(space.id * 100);
-    try {
-        const ai = getAi();
-        const prompt = `Cinematic photo of a ${space.type.toLowerCase()} named ${space.name} in Iceland. Dark moody atmosphere, northern lights, highly detailed, 8k.`;
-        const res = await withRetry<GenerateContentResponse>(() => ai.models.generateContent({
-             model: 'gemini-2.5-flash-image',
-             contents: { parts: [{ text: prompt }] }
-        }));
-        const imgData = res.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
-        if (imgData) {
-             const url = `data:image/png;base64,${imgData}`;
-             setBoard(prev => prev.map(s => s.id === space.id ? { ...s, imageUrl: url, isGeneratedImage: true } : s));
-             setBgImage(url);
-        }
-    } catch(e) { console.error("Space Image Gen failed", e); }
-  };
 
   const generateVoyageVideo = async (prompt: string) => {
       if (isGeneratingVideo) return;
@@ -781,64 +503,59 @@ function App() {
           const ai = getAi();
           const res = await withRetry<GenerateContentResponse>(() => ai.models.generateContent({
               model: 'gemini-2.5-flash-image', 
-              contents: { parts: [{ text: prompt + ", cinematic, icelandic style, photorealistic, 8k" }] }
+              contents: { parts: [{ text: prompt + ", cinematic, masterpiece, 8k" }] }
           }));
           const imgData = res.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
           if (imgData) {
               const url = `data:image/png;base64,${imgData}`;
               const chapter: VoyageChapter = {
-                  id: Date.now().toString(),
-                  url: url,
-                  description: prompt,
-                  round: round,
-                  turnName: playersRef.current[turnRef.current].name
+                  id: Date.now().toString(), url, description: prompt, round, turnName: playersRef.current[turnRef.current].name
               };
               setVoyagePlaylist(prev => [chapter, ...prev]); 
               setViewingChapter(0);
-              setBgImage(url);
           }
       } catch (e) { console.error("Video gen failed", e); }
       finally { setIsGeneratingVideo(false); }
   };
 
-  // --- Render ---
+  // --- Views ---
 
   if (view === 'LOBBY') {
       return (
-          <Lobby 
-              players={players} 
-              setPlayers={setPlayers} 
-              onStart={handleNewGame} 
-              onResume={handleResume} 
-              hasSave={hasSave}
-              onClearSave={handleClearSave}
-          />
+          <Lobby players={players} setPlayers={setPlayers} onStart={handleStartMaker} onResume={handleResume} hasSave={hasSave} onClearSave={handleClearSave} />
       );
   }
 
+  if (view === 'MAKER') {
+      return <WorldMaker theme={gameTheme} setTheme={setGameTheme} onComplete={handleNewGame} />;
+  }
+
+  if (view === 'VICTORY') {
+      return <VictoryStage winner={winner} playlist={voyagePlaylist} onRestart={() => setView('LOBBY')} />;
+  }
+
   const viewingChapterData = voyagePlaylist[viewingChapter !== -1 ? viewingChapter : 0];
-  const currentChapterIndex = viewingChapter === -1 ? 0 : viewingChapter;
   const totalChapters = voyagePlaylist.length;
   const DiceIcon = [null, Dice1, Dice2, Dice3, Dice4, Dice5, Dice6][diceDisplay] || Dice5;
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 font-sans overflow-hidden relative selection:bg-cyan-500/30 flex flex-col">
+        {/* Background Layer */}
         <div className="absolute inset-0 z-0 transition-all duration-1000 ease-in-out" style={{
             backgroundImage: bgImage ? `url(${bgImage})` : `linear-gradient(to bottom, #0f172a, #1e293b)`,
-            backgroundSize: 'cover',
-            backgroundPosition: 'center',
-            opacity: 0.6 
+            backgroundSize: 'cover', backgroundPosition: 'center', opacity: 0.6 
         }}>
             <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-900/50 to-slate-950/30"></div>
         </div>
 
-        {/* HUD */}
-        <div className="relative z-10 flex-1 p-4 md:p-6 flex gap-4 md:gap-6 overflow-hidden">
+        {/* HUD Area */}
+        <div className="relative z-10 flex-1 p-2 md:p-6 flex gap-4 md:gap-6 overflow-hidden">
+            {/* Left Column (Leaderboard & Logs) */}
             <div className="hidden md:flex w-1/4 flex-col gap-6">
                 <div className="glass-panel rounded-2xl p-4 flex-1 overflow-y-auto">
                     <h2 className="flex items-center justify-between font-serif font-bold text-cyan-400 mb-4 sticky top-0 bg-slate-900/50 p-2 rounded backdrop-blur-md z-10">
                         <span className="flex items-center gap-2"><Trophy size={18}/> {t.players}</span>
-                        <span className="text-[10px] bg-slate-800 px-2 py-1 rounded text-slate-400 flex items-center gap-1"><Clock size={10}/> {t.turn} {totalTurns}</span>
+                        <span className="text-[10px] bg-slate-800 px-2 py-1 rounded text-slate-400 flex items-center gap-1"><Clock size={10}/> T{totalTurns}</span>
                     </h2>
                     <div className="space-y-3">
                         {[...players].sort((a, b) => getNetWorth(b, board) - getNetWorth(a, board)).map((p, idx) => {
@@ -884,17 +601,10 @@ function App() {
                 </div>
             </div>
 
-            {/* CENTER */}
+            {/* Center Column (Visuals & Board) */}
             <div className={`flex-1 flex flex-col gap-4 ${isFullscreen ? 'fixed inset-0 z-50 p-0 gap-0 bg-black' : ''}`}>
                 <div className={`${isFullscreen ? 'h-full w-full rounded-none' : 'flex-1 rounded-2xl'} glass-panel relative overflow-hidden group border border-white/10 shadow-2xl flex items-center justify-center bg-black/40 min-h-0 transition-all duration-500`}>
-                    {winner ? (
-                        <div className="text-center animate-bounce">
-                            <Crown size={96} className="mx-auto text-yellow-400 mb-4"/>
-                            <h1 className="text-6xl font-serif text-yellow-400 font-bold mb-4">{t.winner}</h1>
-                            <div className="text-3xl text-white">{winner.name}</div>
-                            <button onClick={handleNewGame} className="mt-8 px-8 py-3 bg-cyan-600 rounded-xl font-bold hover:bg-cyan-500">Play Again</button>
-                        </div>
-                    ) : viewingChapterData ? (
+                    {viewingChapterData ? (
                         <div key={viewingChapterData.id} className="absolute inset-0 animate-fade-in">
                             <img src={viewingChapterData.url || bgImage || PREMADE_IMAGES.START} className="w-full h-full object-cover" />
                             {totalChapters > 1 && (
@@ -923,14 +633,14 @@ function App() {
                     <div className="flex gap-2 h-1/5">{board.slice(0, 5).map(s => <BoardCell key={s.id} space={s} players={players} />)}</div>
                     <div className="flex flex-1 py-2 gap-2">
                         <div className="flex flex-col w-1/5 gap-2">{[...board.slice(13, 16)].reverse().map(s => <BoardCell key={s.id} space={s} players={players} />)}</div>
-                        <div className="flex-1 rounded-xl relative overflow-hidden flex items-center justify-center p-2"><CentralHub weather={weather} mapUrl={icelandMapUrl} market={market} round={round}/></div>
+                        <div className="flex-1 rounded-xl relative overflow-hidden flex items-center justify-center p-2"><CentralHub weather={weather} mapUrl={icelandMapUrl} market={market} round={round} theme={gameTheme}/></div>
                         <div className="flex flex-col w-1/5 gap-2">{board.slice(5, 8).map(s => <BoardCell key={s.id} space={s} players={players} />)}</div>
                     </div>
                     <div className="flex gap-2 h-1/5">{[...board.slice(8, 13)].reverse().map(s => <BoardCell key={s.id} space={s} players={players} />)}</div>
                 </div>
             </div>
 
-            {/* CONTROLLER */}
+            {/* Right Column (Controls) */}
             <div className={`w-1/4 max-w-sm flex flex-col relative z-20 ${isFullscreen ? 'hidden' : ''}`}>
                 <div className="glass-panel rounded-[3rem] border-4 border-slate-700 bg-slate-900 p-2 shadow-2xl h-full flex flex-col relative overflow-hidden">
                     <div className="absolute top-0 left-1/2 -translate-x-1/2 w-32 h-6 bg-slate-800 rounded-b-xl z-30"></div>
@@ -1003,30 +713,25 @@ function App() {
             </div>
             {!isFullscreen && <div className="absolute bottom-4 left-4 z-50 text-[10px] text-slate-500 bg-black/50 px-2 py-1 rounded flex items-center gap-1"><Save size={10} /> Auto-save active</div>}
         </div>
-        {!isFullscreen && <NewsTicker market={market} />}
-        <style>{`@keyframes width { 0% { width: 0%; } 100% { width: 100%; } } .animate-fade-in { animation: fadeIn 0.5s ease-out forwards; } @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } } @keyframes spin-slow { from { transform: rotate(0deg); } to { transform: rotate(360deg); } } .animate-spin-slow { animation: spin-slow 20s linear infinite; }`}</style>
+        {!isFullscreen && <div className="h-8 bg-slate-900 border-t border-slate-700 flex items-center overflow-hidden relative z-50">
+             <div className="whitespace-nowrap animate-[scroll_30s_linear_infinite] flex gap-8 text-xs font-mono">
+                {[...Array(3)].map((_, i) => (
+                    <React.Fragment key={i}>
+                        <span className="text-green-400 font-bold">MARKET INDEX ▲ 2.4%</span><span className="text-slate-400">|</span>
+                        <span className={market.trend === 'BOOM' ? 'text-green-400' : 'text-red-400'}>FISH: {(market.fishPrice * 100).toFixed(0)}% ({market.trend})</span><span className="text-slate-400">|</span>
+                        <span className="text-amber-400">MEAT: {(market.meatPrice * 100).toFixed(0)}%</span><span className="text-slate-400">|</span>
+                    </React.Fragment>
+                ))}
+             </div>
+        </div>}
+        <style>{`@keyframes scroll { 0% { transform: translateX(0); } 100% { transform: translateX(-33.33%); } } .animate-fade-in { animation: fadeIn 0.5s ease-out forwards; } @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } } @keyframes spin-slow { from { transform: rotate(0deg); } to { transform: rotate(360deg); } } .animate-spin-slow { animation: spin-slow 20s linear infinite; }`}</style>
     </div>
   );
 }
 
-// --- Sub-Components ---
+// --- Components ---
 
-const NewsTicker = ({ market }: { market: MarketState }) => (
-    <div className="h-8 bg-slate-900 border-t border-slate-700 flex items-center overflow-hidden relative z-50">
-        <div className="whitespace-nowrap animate-[scroll_30s_linear_infinite] flex gap-8 text-xs font-mono">
-            {[...Array(3)].map((_, i) => (
-                <React.Fragment key={i}>
-                    <span className="text-green-400 font-bold">VÍSITALA SJÁVARÚTVEGS ▲ 2.4%</span><span className="text-slate-400">|</span>
-                    <span className={market.trend === 'BOOM' ? 'text-green-400' : 'text-red-400'}>FISKUR: {(market.fishPrice * 100).toFixed(0)}% ({market.trend})</span><span className="text-slate-400">|</span>
-                    <span className="text-amber-400">AUG: {ADS[0]}</span><span className="text-slate-400">|</span>
-                </React.Fragment>
-            ))}
-        </div>
-        <style>{`@keyframes scroll { 0% { transform: translateX(0); } 100% { transform: translateX(-33.33%); } }`}</style>
-    </div>
-);
-
-const CentralHub = ({ weather, mapUrl, market, round }: { weather: WeatherType, mapUrl: string | null, market: MarketState, round: number }) => (
+const CentralHub = ({ weather, mapUrl, market, round, theme }: { weather: WeatherType, mapUrl: string | null, market: MarketState, round: number, theme: string }) => (
     <div className="relative w-full h-full rounded-full flex items-center justify-center group">
         <div className="absolute inset-0 rounded-full border-[12px] border-slate-800/80 z-10"></div>
         <div className="absolute inset-2 rounded-full border-2 border-dashed border-white/20 animate-spin-slow z-20"></div>
@@ -1034,7 +739,7 @@ const CentralHub = ({ weather, mapUrl, market, round }: { weather: WeatherType, 
              {mapUrl ? <img src={mapUrl} className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity" /> : <div className="w-full h-full flex items-center justify-center text-xs text-slate-600">Loading Map...</div>}
         </div>
         <div className="relative z-30 flex flex-col items-center justify-center text-center bg-black/40 p-2 rounded-xl backdrop-blur-sm border border-white/10">
-            <h3 className="font-serif font-bold text-xs sm:text-xl text-white drop-shadow-md">ÍSLAND</h3>
+            <h3 className="font-serif font-bold text-xs sm:text-lg text-white drop-shadow-md uppercase max-w-[120px] truncate">{theme}</h3>
             <div className="flex items-center gap-1 sm:gap-2 text-[10px] sm:text-sm mt-1">
                 {weather === 'SUNNY' && <Sun size={12} className="text-yellow-400"/>}
                 {weather === 'STORM' && <CloudLightning size={12} className="text-slate-400"/>}
@@ -1054,7 +759,10 @@ const BoardCell: React.FC<{ space: BoardSpace, players: Player[] }> = ({ space, 
     return (
         <div className={`relative flex-1 rounded-lg ${cornerStyle} backdrop-blur-sm overflow-hidden group`}>
             <div className="absolute inset-0 opacity-50 group-hover:opacity-100 transition-opacity duration-500">
-                <img src={space.imageUrl || PREMADE_IMAGES.START} className="w-full h-full object-cover grayscale group-hover:grayscale-0 transition-all duration-700" onError={(e) => { (e.target as HTMLImageElement).src = PREMADE_IMAGES.START; }}/>
+                {space.imageUrl ? 
+                    <img src={space.imageUrl} className="w-full h-full object-cover grayscale group-hover:grayscale-0 transition-all duration-700" /> 
+                    : <div className="w-full h-full bg-slate-800 flex items-center justify-center"><Loader2 className="animate-spin text-slate-600"/></div>
+                }
                 <div className={`absolute inset-0 bg-gradient-to-t ${isCorner ? 'from-slate-900/80 via-transparent' : 'from-slate-950 via-slate-950/20 to-transparent'}`}></div>
             </div>
             <div className="relative z-10 h-full p-2 flex flex-col justify-between">
@@ -1075,6 +783,174 @@ const BoardCell: React.FC<{ space: BoardSpace, players: Player[] }> = ({ space, 
     );
 };
 
+// --- World Maker ---
+
+const WorldMaker = ({ theme, setTheme, onComplete }: { theme: string, setTheme: (s: string) => void, onComplete: (b: BoardSpace[]) => void }) => {
+    const [status, setStatus] = useState("Waiting for captain...");
+    const [progress, setProgress] = useState(0);
+    const [isGenerating, setIsGenerating] = useState(false);
+    const [previewBoard, setPreviewBoard] = useState<BoardSpace[]>([]);
+
+    const generateBoardData = async () => {
+        setIsGenerating(true);
+        setStatus("Consulting the charts...");
+        try {
+            const ai = getAi();
+            // 1. Generate Data
+            const prompt = `Generate 16 monopoly-style board spaces for a game themed: "${theme}". 
+            STRICT RULES:
+            - Return ONLY valid JSON.
+            - Array of objects with keys: name (string), type (string), price (number).
+            - Corner indices MUST be: 0:START, 5:GO_TO_JAIL, 8:FREE_PARKING, 13:JAIL.
+            - Other types must be BOAT, RESTAURANT, CHANCE, or STORM.
+            - BOAT rent is approx 20-60. RESTAURANT rent is approx 30-70.
+            - Do not markdown wrap.`;
+            
+            const res = await withRetry<GenerateContentResponse>(() => ai.models.generateContent({
+                model: 'gemini-3-flash-preview',
+                contents: prompt
+            }));
+            
+            let cleanJson = res.text?.replace(/```json/g, '').replace(/```/g, '').trim();
+            let spaces = JSON.parse(cleanJson || "[]") as any[];
+            
+            // Fix corners if AI messed up
+            const fixedSpaces: BoardSpace[] = spaces.map((s, i) => ({
+                id: i,
+                name: s.name,
+                type: [0].includes(i) ? 'START' : [5].includes(i) ? 'GO_TO_JAIL' : [8].includes(i) ? 'FREE_PARKING' : [13].includes(i) ? 'JAIL' : s.type as SpaceType,
+                price: s.price || (i * 20),
+                rent: Math.floor((s.price || 100) * 0.2)
+            }));
+            setPreviewBoard(fixedSpaces);
+            setProgress(20);
+
+            // 2. Generate Images in Batches
+            setStatus("Painting the world...");
+            const BATCH_SIZE = 4;
+            const updatedBoard = [...fixedSpaces];
+            
+            for (let i = 0; i < fixedSpaces.length; i += BATCH_SIZE) {
+                const batch = fixedSpaces.slice(i, i + BATCH_SIZE);
+                await Promise.all(batch.map(async (space) => {
+                    try {
+                        const imgRes = await withRetry<GenerateContentResponse>(() => ai.models.generateContent({
+                            model: 'gemini-2.5-flash-image',
+                            contents: { parts: [{ text: `Iconic card art for board game space: ${space.name}, type: ${space.type}, theme: ${theme}. Minimalist, stylized, high contrast.` }] }
+                        }));
+                        const data = imgRes.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
+                        if (data) {
+                            updatedBoard[space.id].imageUrl = `data:image/png;base64,${data}`;
+                            updatedBoard[space.id].isGenerated = true;
+                        }
+                    } catch (e) { console.error("Img gen error", e); }
+                }));
+                setPreviewBoard([...updatedBoard]);
+                setProgress(20 + ((i + BATCH_SIZE) / 16) * 80);
+            }
+            
+            setStatus("Ready to sail!");
+            setTimeout(() => onComplete(updatedBoard), 1000);
+
+        } catch (e) {
+            console.error(e);
+            setStatus("Generation failed. Using emergency maps.");
+            setTimeout(() => onComplete(PREMADE_BOARD), 2000); // Fallback
+        }
+    };
+
+    return (
+        <div className="min-h-screen bg-slate-900 flex flex-col items-center justify-center p-8 relative overflow-hidden">
+             <div className="absolute inset-0 bg-[url('https://images.unsplash.com/photo-1542359649-31e03cd4d909?w=1200')] bg-cover opacity-20 animate-pulse-glow"></div>
+             <div className="glass-panel p-8 rounded-3xl max-w-2xl w-full z-10 text-center">
+                 <h1 className="text-3xl font-serif text-cyan-400 mb-2">WORLD MAKER</h1>
+                 <p className="text-slate-400 mb-8">Define the era and theme of your voyage.</p>
+                 
+                 {!isGenerating ? (
+                     <div className="space-y-6">
+                         <div className="bg-white/5 p-2 rounded-xl border border-white/10 flex items-center gap-4">
+                            <Paintbrush className="text-cyan-500 ml-2" />
+                            <input 
+                                value={theme} 
+                                onChange={(e) => setTheme(e.target.value)}
+                                className="bg-transparent border-none outline-none text-xl w-full text-white placeholder-slate-600"
+                                placeholder="e.g. Cyberpunk Vikings"
+                            />
+                         </div>
+                         <button onClick={generateBoardData} className="w-full py-4 bg-gradient-to-r from-cyan-600 to-blue-600 rounded-xl font-bold text-xl hover:scale-105 transition-transform shadow-lg shadow-cyan-500/30">
+                             GENERATE WORLD
+                         </button>
+                         <div className="grid grid-cols-4 gap-2 mt-4 opacity-50">
+                             {Array(4).fill(0).map((_,i) => <div key={i} className="h-16 bg-white/5 rounded-lg border border-white/5 border-dashed"></div>)}
+                         </div>
+                     </div>
+                 ) : (
+                     <div className="space-y-6">
+                         <div className="text-2xl font-bold text-white animate-pulse">{status}</div>
+                         <div className="h-4 bg-slate-800 rounded-full overflow-hidden">
+                             <div className="h-full bg-cyan-500 transition-all duration-500" style={{ width: `${progress}%` }}></div>
+                         </div>
+                         <div className="grid grid-cols-4 md:grid-cols-8 gap-2 mt-8">
+                             {previewBoard.map((s, i) => (
+                                 <div key={i} className="aspect-square rounded-lg bg-slate-800 border border-white/10 overflow-hidden relative">
+                                     {s.imageUrl ? <img src={s.imageUrl} className="w-full h-full object-cover animate-fade-in" /> : <div className="w-full h-full flex items-center justify-center text-slate-600 text-[10px]">{s.name ? '...' : ''}</div>}
+                                 </div>
+                             ))}
+                             {Array(16 - previewBoard.length).fill(0).map((_,i) => <div key={i} className="aspect-square rounded-lg bg-white/5 animate-pulse"></div>)}
+                         </div>
+                     </div>
+                 )}
+             </div>
+        </div>
+    )
+}
+
+// --- Victory Stage ---
+
+const VictoryStage = ({ winner, playlist, onRestart }: { winner: Player | null, playlist: VoyageChapter[], onRestart: () => void }) => {
+    const [showCredits, setShowCredits] = useState(false);
+
+    useEffect(() => { setTimeout(() => setShowCredits(true), 3000); }, []);
+
+    return (
+        <div className="min-h-screen bg-black flex flex-col items-center justify-center relative overflow-hidden">
+             {/* Background Slideshow of Journey */}
+             <div className="absolute inset-0 z-0 opacity-40">
+                 {playlist.length > 0 && <img src={playlist[0].url} className="w-full h-full object-cover animate-pulse-glow" />}
+             </div>
+             
+             <div className="z-10 text-center space-y-8 p-8 max-w-4xl">
+                 <div className="animate-[float_6s_infinite]">
+                     <Crown size={120} className="text-yellow-400 mx-auto drop-shadow-[0_0_30px_rgba(250,204,21,0.6)]" />
+                 </div>
+                 <h1 className="text-7xl font-serif font-bold text-transparent bg-clip-text bg-gradient-to-b from-yellow-200 to-yellow-600 drop-shadow-sm">
+                     {winner?.name}
+                 </h1>
+                 <p className="text-2xl text-slate-300 font-serif tracking-widest uppercase border-t border-b border-white/20 py-4">
+                     Master of the {playlist.length > 0 ? 'High Seas' : 'Board'}
+                 </p>
+
+                 {showCredits && (
+                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4 animate-fade-in">
+                         {playlist.slice(0, 3).map((chapter, i) => (
+                             <div key={i} className="bg-white/10 p-2 rounded-xl backdrop-blur-md border border-white/10 transform hover:scale-105 transition-transform">
+                                 <img src={chapter.url} className="w-full aspect-video object-cover rounded-lg mb-2"/>
+                                 <p className="text-[10px] text-slate-300 line-clamp-2">{chapter.description}</p>
+                             </div>
+                         ))}
+                     </div>
+                 )}
+                 
+                 <div className="pt-12">
+                     <button onClick={onRestart} className="px-12 py-4 bg-white text-black font-bold rounded-full hover:scale-110 transition-transform shadow-[0_0_50px_rgba(255,255,255,0.3)]">
+                         BEGIN NEW LEGACY
+                     </button>
+                 </div>
+             </div>
+        </div>
+    )
+}
+
 // --- Lobby ---
 
 const Lobby = ({ players, setPlayers, onStart, onResume, hasSave, onClearSave }: { players: Player[], setPlayers: React.Dispatch<React.SetStateAction<Player[]>>, onStart: () => void, onResume: () => void, hasSave: boolean, onClearSave: () => void }) => {
@@ -1090,17 +966,12 @@ const Lobby = ({ players, setPlayers, onStart, onResume, hasSave, onClearSave }:
         setGeneratingIds(prev => [...prev, player.id]);
         try {
             const ai = getAi();
-            const prompt = `Hyper-realistic close-up portrait of a gritty Icelandic sea captain named ${player.name}, sitting in a dark ${player.boatType} cabin. Weather-beaten face, intense eyes, traditional wool sweater (lopapeysa), rain droplets on face. Cinematic lighting, Rembrandt style, 8k resolution, highly detailed texture.`;
+            const prompt = `Hyper-realistic close-up portrait of a character named ${player.name}, captain of a ${player.boatType}. Cinematic lighting, detailed texture.`;
             const res = await withRetry<GenerateContentResponse>(() => ai.models.generateContent({ model: 'gemini-2.5-flash-image', contents: { parts: [{ text: prompt }] } }));
             const imgData = res.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
             if (imgData) setPlayers(prev => prev.map(p => p.id === player.id ? { ...p, portraitUrl: `data:image/png;base64,${imgData}` } : p));
         } catch (e) { console.error("Portrait gen failed", e); } 
         finally { setGeneratingIds(prev => prev.filter(id => id !== player.id)); }
-    };
-
-    const generateAllPortraits = async () => {
-        const humanPlayers = players.filter(p => !p.isAi);
-        for (const p of humanPlayers) { await generatePortrait(p); await new Promise(r => setTimeout(r, 500)); }
     };
 
     return (
@@ -1114,7 +985,7 @@ const Lobby = ({ players, setPlayers, onStart, onResume, hasSave, onClearSave }:
                          <div className="flex gap-2"><button onClick={onClearSave} className="px-3 py-2 text-xs hover:bg-red-500/20 text-red-300 rounded-lg flex items-center gap-1 transition-colors"><Trash2 size={14}/> Eyða</button><button onClick={onResume} className="px-6 py-2 bg-amber-600 hover:bg-amber-500 text-white font-bold rounded-lg shadow-lg shadow-amber-900/50 flex items-center gap-2 transition-transform hover:scale-105"><Play size={16} fill="currentColor"/> Halda áfram</button></div>
                     </div>
                 )}
-                <div className="flex justify-end mb-4"><button onClick={generateAllPortraits} disabled={generatingIds.length > 0} className="px-4 py-2 bg-cyan-900/30 hover:bg-cyan-900/50 text-cyan-300 text-xs rounded-lg border border-cyan-800 flex items-center gap-2 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"><Sparkles size={14} /> Generate All Human Portraits</button></div>
+                
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">
                     {players.map((p, i) => (
                         <div key={i} className="bg-white/5 p-4 rounded-xl flex items-center gap-4 border border-white/10 relative group hover:border-cyan-500/30 transition-all">
@@ -1133,11 +1004,31 @@ const Lobby = ({ players, setPlayers, onStart, onResume, hasSave, onClearSave }:
                     ))}
                     {players.length < 4 && <button onClick={addPlayer} className="border-2 border-dashed border-white/10 rounded-xl flex items-center justify-center text-slate-500 hover:text-white hover:border-white/30 transition-all p-4 min-h-[100px]">+ Add Captain</button>}
                 </div>
-                <div className="flex flex-col gap-3"><button onClick={onStart} className="w-full py-4 bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 rounded-xl font-bold text-white text-xl tracking-[0.2em] shadow-lg shadow-cyan-900/50 transition-all flex items-center justify-center gap-2 group"><Ship size={24} className="group-hover:animate-bounce"/>{T.IS.new_game}</button>{hasSave && <div className="text-center text-xs text-slate-500">Starting a new game will overwrite existing save data.</div>}</div>
+                <div className="flex flex-col gap-3"><button onClick={onStart} className="w-full py-4 bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 rounded-xl font-bold text-white text-xl tracking-[0.2em] shadow-lg shadow-cyan-900/50 transition-all flex items-center justify-center gap-2 group"><Globe size={24} className="group-hover:animate-spin-slow"/>ENTER WORLD MAKER</button>{hasSave && <div className="text-center text-xs text-slate-500">Starting a new game will overwrite existing save data.</div>}</div>
             </div>
         </div>
     );
 };
+
+// Fallback Board
+const PREMADE_BOARD: BoardSpace[] = [
+  { id: 0, name: "Start", type: 'START', imageUrl: PREMADE_IMAGES.START },
+  { id: 1, name: "Old Boat", type: 'BOAT', price: 100, imageUrl: PREMADE_IMAGES.BOAT },
+  { id: 2, name: "Chance", type: 'CHANCE', imageUrl: PREMADE_IMAGES.CHANCE },
+  { id: 3, name: "Diner", type: 'RESTAURANT', price: 150, imageUrl: PREMADE_IMAGES.RESTAURANT },
+  { id: 4, name: "Trawler", type: 'BOAT', price: 180, imageUrl: PREMADE_IMAGES.BOAT },
+  { id: 5, name: "Go To Jail", type: 'GO_TO_JAIL', imageUrl: PREMADE_IMAGES.STORM },
+  { id: 6, name: "Bistro", type: 'RESTAURANT', price: 200, imageUrl: PREMADE_IMAGES.RESTAURANT },
+  { id: 7, name: "Yacht", type: 'BOAT', price: 220, imageUrl: PREMADE_IMAGES.BOAT },
+  { id: 8, name: "Parking", type: 'FREE_PARKING', imageUrl: PREMADE_IMAGES.START },
+  { id: 9, name: "Cruiser", type: 'BOAT', price: 240, imageUrl: PREMADE_IMAGES.BOAT },
+  { id: 10, name: "Chance", type: 'CHANCE', imageUrl: PREMADE_IMAGES.CHANCE },
+  { id: 11, name: "Fine Dining", type: 'RESTAURANT', price: 350, imageUrl: PREMADE_IMAGES.RESTAURANT },
+  { id: 12, name: "Speedboat", type: 'BOAT', price: 260, imageUrl: PREMADE_IMAGES.BOAT },
+  { id: 13, name: "Jail", type: 'JAIL', imageUrl: PREMADE_IMAGES.JAIL },
+  { id: 14, name: "Mega Yacht", type: 'BOAT', price: 300, imageUrl: PREMADE_IMAGES.BOAT },
+  { id: 15, name: "The Dock", type: 'RESTAURANT', price: 280, imageUrl: PREMADE_IMAGES.RESTAURANT },
+];
 
 const root = createRoot(document.getElementById('root')!);
 root.render(<App />);
