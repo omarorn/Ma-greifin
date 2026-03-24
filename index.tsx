@@ -24,7 +24,7 @@ const AI_THINK_TIME = 1500;
 const AI_ACTION_DELAY = 1000;
 
 // Game Phases
-type GameView = 'CAREER_START' | 'MAKER' | 'BOARD' | 'VOYAGE' | 'SHIPYARD' | 'VICTORY';
+type GameView = 'API_KEY_SELECT' | 'CAREER_START' | 'MAKER' | 'BOARD' | 'VOYAGE' | 'SHIPYARD' | 'VICTORY';
 type SpaceType = 'START' | 'FISHING_GROUND' | 'HARBOR' | 'MARKET' | 'STORM' | 'INSPECTION' | 'SHIPYARD' | 'OPEN_SEA';
 type WeatherType = 'CALM' | 'ROUGH' | 'STORM' | 'HURRICANE';
 type Rank = 'DECKHAND' | 'SKIPPER' | 'CAPTAIN' | 'MAGNATE';
@@ -163,7 +163,7 @@ const PREMADE_IMAGES = {
 // --- Main App Component ---
 
 function App() {
-  const [view, setView] = useState<GameView>('CAREER_START');
+  const [view, setView] = useState<GameView>('API_KEY_SELECT');
   const [players, setPlayers] = useState<Player[]>([]);
   const [companies, setCompanies] = useState<Company[]>([]);
   const [board, setBoard] = useState<BoardSpace[]>([]);
@@ -248,7 +248,7 @@ function App() {
 
           const downloadLink = operation.response?.generatedVideos?.[0]?.video?.uri;
           if (downloadLink) {
-              const apiKey = process.env.GEMINI_API_KEY;
+              const apiKey = process.env.API_KEY;
               const response = await fetch(downloadLink, {
                   method: 'GET',
                   headers: { 'x-goog-api-key': apiKey || '' },
@@ -748,6 +748,10 @@ function App() {
 
   // --- Render ---
 
+  if (view === 'API_KEY_SELECT') {
+      return <ApiKeySelection onComplete={() => setView('CAREER_START')} />;
+  }
+
   if (view === 'CAREER_START') {
       return <CareerSetup onComplete={(p, c, theme) => { 
           setPlayers(p); 
@@ -1046,6 +1050,74 @@ function App() {
 }
 
 // --- Sub-Components ---
+
+const ApiKeySelection = ({ onComplete }: { onComplete: () => void }) => {
+    const [isChecking, setIsChecking] = useState(true);
+
+    useEffect(() => {
+        const checkKey = async () => {
+            try {
+                // @ts-ignore
+                if (window.aistudio && await window.aistudio.hasSelectedApiKey()) {
+                    onComplete();
+                } else {
+                    setIsChecking(false);
+                }
+            } catch (e) {
+                setIsChecking(false);
+            }
+        };
+        checkKey();
+    }, [onComplete]);
+
+    const handleSelectKey = async () => {
+        try {
+            // @ts-ignore
+            if (window.aistudio) {
+                // @ts-ignore
+                await window.aistudio.openSelectKey();
+                // Assume success to avoid race conditions
+                onComplete();
+            }
+        } catch (e) {
+            console.error("Failed to select API key", e);
+            // If it fails, we stay on this screen
+        }
+    };
+
+    if (isChecking) {
+        return (
+            <div className="min-h-screen bg-slate-950 flex items-center justify-center p-4">
+                <div className="flex flex-col items-center gap-4 text-cyan-400">
+                    <Loader2 className="animate-spin" size={48} />
+                    <p className="font-mono tracking-widest">CHECKING CREDENTIALS...</p>
+                </div>
+            </div>
+        );
+    }
+
+    return (
+        <div className="min-h-screen bg-slate-950 flex items-center justify-center p-4 bg-[url('https://images.unsplash.com/photo-1516216628259-22b93466152a?w=1600')] bg-cover bg-center">
+            <div className="absolute inset-0 bg-black/60 backdrop-blur-sm"></div>
+            <div className="relative z-10 bg-slate-900/80 p-8 rounded-2xl border border-cyan-500/30 shadow-2xl shadow-cyan-900/20 max-w-md w-full text-center">
+                <Anchor className="w-16 h-16 text-cyan-400 mx-auto mb-6" />
+                <h1 className="text-3xl font-serif text-white mb-4">API Key Required</h1>
+                <p className="text-slate-300 mb-8">
+                    To generate cinematic videos and high-quality maps, this game requires a paid Gemini API key.
+                </p>
+                <button 
+                    onClick={handleSelectKey} 
+                    className="w-full py-4 bg-gradient-to-r from-cyan-700 to-blue-700 hover:from-cyan-600 hover:to-blue-600 rounded-xl font-bold text-white text-lg tracking-widest shadow-lg shadow-cyan-900/50 transition-all flex items-center justify-center gap-2"
+                >
+                    <Sparkles size={20}/> SELECT API KEY
+                </button>
+                <p className="text-slate-500 text-xs mt-6">
+                    You can get an API key from <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noreferrer" className="text-cyan-500 hover:underline">Google AI Studio</a>.
+                </p>
+            </div>
+        </div>
+    );
+};
 
 const CareerSetup = ({ onComplete, onResume }: { onComplete: (players: Player[], companies: Company[], theme: string) => void, onResume?: () => void }) => {
     const [companyName, setCompanyName] = useState("");
