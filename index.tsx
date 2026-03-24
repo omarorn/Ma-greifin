@@ -181,6 +181,42 @@ function App() {
   const [gameTheme, setGameTheme] = useState("Icelandic Fishing 1980s");
   
   const [isDiceRolling, setIsDiceRolling] = useState(false);
+  const isDiceRollingRef = useRef(false);
+  useEffect(() => { isDiceRollingRef.current = isDiceRolling; }, [isDiceRolling]);
+
+  useEffect(() => {
+      let lastX = 0, lastY = 0, lastZ = 0;
+      let lastUpdate = 0;
+      const SHAKE_THRESHOLD = 15;
+
+      const handleMotion = (e: DeviceMotionEvent) => {
+          const current = e.accelerationIncludingGravity;
+          if (!current || current.x === null || current.y === null || current.z === null) return;
+          
+          const currentTime = new Date().getTime();
+          if ((currentTime - lastUpdate) > 100) {
+              const diffTime = (currentTime - lastUpdate);
+              lastUpdate = currentTime;
+
+              const speed = Math.abs(current.x + current.y + current.z - lastX - lastY - lastZ) / diffTime * 10000;
+
+              if (speed > SHAKE_THRESHOLD * 1000) {
+                  if (view === 'BOARD' && gameStateRef.current === 'IDLE') {
+                      const currentP = playersRef.current[turnRef.current];
+                      if (currentP && !currentP.isAi && !isDiceRollingRef.current) {
+                          triggerDiceRoll();
+                      }
+                  }
+              }
+              lastX = current.x;
+              lastY = current.y;
+              lastZ = current.z;
+          }
+      };
+
+      window.addEventListener('devicemotion', handleMotion);
+      return () => window.removeEventListener('devicemotion', handleMotion);
+  }, [view]);
   const [diceDisplay, setDiceDisplay] = useState(5);
   const [weather, setWeather] = useState<WeatherType>('CALM');
   
@@ -257,8 +293,20 @@ function App() {
       setCompanies(prev => prev.map(c => c.id === companyId ? { ...c, reputation: Math.max(0, c.reputation + amount) } : c));
   };
 
-  const triggerDiceRoll = () => {
-      if (isDiceRolling || gameStateRef.current !== 'IDLE') return;
+  const triggerDiceRoll = async () => {
+      if (isDiceRollingRef.current || gameStateRef.current !== 'IDLE') return;
+      
+      if (typeof (DeviceMotionEvent as any).requestPermission === 'function') {
+          try {
+              const permissionState = await (DeviceMotionEvent as any).requestPermission();
+              if (permissionState === 'granted') {
+                  // Permission granted
+              }
+          } catch (e) {
+              console.error(e);
+          }
+      }
+
       setIsDiceRolling(true);
       let count = 0;
       const interval = setInterval(() => {
@@ -754,16 +802,6 @@ function App() {
                         </div>
                     ))}
                 </div>
-                <div className="glass-panel rounded-xl p-4 h-1/3 flex flex-col">
-                    <h3 className="font-serif text-slate-400 text-xs mb-2">LOGBOOK</h3>
-                    <div className="flex-1 overflow-y-auto text-[10px] font-mono space-y-1.5 text-slate-300">
-                        {logs.map(l => (
-                            <div key={l.id} className={`${l.type === 'alert' ? 'text-red-300' : l.type === 'success' ? 'text-green-300' : ''}`}>
-                                <span className="opacity-50 mr-2">[{l.timestamp}]</span>{l.text}
-                            </div>
-                        ))}
-                    </div>
-                </div>
             </div>
 
             {/* Center: Board */}
@@ -775,11 +813,24 @@ function App() {
                 {/* Middle */}
                 <div className="flex flex-1 gap-2 my-2">
                     <div className="flex flex-col w-1/5 gap-2">{[...board.slice(13, 16)].reverse().map(s => <BoardSpaceCell key={s.id} space={s} players={players} activePlayerId={turn} gameState={gameState} />)}</div>
-                    <div className="flex-1 relative bg-slate-900/50 rounded-lg flex flex-col items-center justify-center">
+                    <div className="flex-1 relative bg-slate-900/50 rounded-lg flex flex-col items-center justify-center overflow-hidden">
                         <div className="absolute inset-0 opacity-20 bg-[url('https://upload.wikimedia.org/wikipedia/commons/c/c9/Iceland_relief_map.jpg')] bg-cover bg-center mix-blend-overlay"></div>
-                        <div className="z-10 text-center">
-                             <h2 className="text-2xl font-serif text-white/80">{gameTheme}</h2>
-                             {voyagePlaylist.length > 0 && <div className="mt-4 w-48 h-28 mx-auto bg-black rounded-lg border border-white/20 overflow-hidden relative group cursor-pointer hover:scale-105 transition-transform">
+                        <div className="z-10 text-center w-full h-full flex flex-col p-4">
+                             <h2 className="text-2xl font-serif text-white/80 mb-2">{gameTheme}</h2>
+                             
+                             {/* Live Feed Logs */}
+                             <div className="flex-1 w-full max-w-lg mx-auto bg-black/40 backdrop-blur-sm rounded-xl border border-white/10 p-4 flex flex-col overflow-hidden">
+                                 <h3 className="font-serif text-slate-400 text-xs mb-2 text-left flex items-center gap-2"><Wind size={14}/> LIVE FEED</h3>
+                                 <div className="flex-1 overflow-y-auto text-xs font-mono space-y-2 text-slate-300 text-left flex flex-col-reverse">
+                                     {logs.map(l => (
+                                         <div key={l.id} className={`p-2 rounded bg-white/5 border-l-2 ${l.type === 'alert' ? 'border-red-500 text-red-200' : l.type === 'success' ? 'border-green-500 text-green-200' : 'border-cyan-500'}`}>
+                                             <span className="opacity-50 mr-2 text-[10px]">[{l.timestamp}]</span>{l.text}
+                                         </div>
+                                     ))}
+                                 </div>
+                             </div>
+
+                             {voyagePlaylist.length > 0 && <div className="mt-4 w-48 h-28 mx-auto bg-black rounded-lg border border-white/20 overflow-hidden relative group cursor-pointer hover:scale-105 transition-transform shrink-0">
                                  <img src={voyagePlaylist[0].url} className="w-full h-full object-cover"/>
                              </div>}
                         </div>
