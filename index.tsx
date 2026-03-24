@@ -222,6 +222,75 @@ function App() {
   
   const [voyagePlaylist, setVoyagePlaylist] = useState<VoyageChapter[]>([]);
   const [bgImage, setBgImage] = useState<string | null>(null);
+  const [bgVideo, setBgVideo] = useState<string | null>(null);
+  const [mapImage, setMapImage] = useState<string | null>(null);
+
+  const generateBgVideo = async (prompt: string) => {
+      try {
+          const ai = getAi();
+          addLog("Generating cinematic video...", 'info');
+          
+          let operation = await ai.models.generateVideos({
+              model: 'veo-3.1-fast-generate-preview',
+              prompt: prompt + ", cinematic, masterpiece, moody lighting, icelandic seascape, 80s film grain",
+              config: {
+                  numberOfVideos: 1,
+                  resolution: '720p',
+                  aspectRatio: '16:9'
+              }
+          });
+
+          // Poll for completion
+          while (!operation.done) {
+              await new Promise(resolve => setTimeout(resolve, 5000));
+              operation = await ai.operations.getVideosOperation({operation: operation});
+          }
+
+          const downloadLink = operation.response?.generatedVideos?.[0]?.video?.uri;
+          if (downloadLink) {
+              const apiKey = process.env.GEMINI_API_KEY;
+              const response = await fetch(downloadLink, {
+                  method: 'GET',
+                  headers: { 'x-goog-api-key': apiKey || '' },
+              });
+              
+              if (response.ok) {
+                  const blob = await response.blob();
+                  const videoUrl = URL.createObjectURL(blob);
+                  setBgVideo(videoUrl);
+                  addLog("Cinematic video ready!", 'success');
+              }
+          }
+      } catch (e) {
+          console.error("Video generation failed:", e);
+          addLog("Failed to generate video.", 'alert');
+      }
+  };
+
+  const generateMapImage = async (theme: string) => {
+      try {
+          const ai = getAi();
+          const prompt = `A highly detailed, stylized, vintage nautical map of Iceland, 1980s aesthetic, fishing zones, sea routes, compass rose, dramatic moody lighting, cinematic, 8k resolution, masterpiece. Theme: ${theme}`;
+          
+          const res = await withRetry<GenerateContentResponse>(() => ai.models.generateContent({
+              model: 'gemini-3.1-flash-image-preview',
+              contents: { parts: [{ text: prompt }] },
+              config: {
+                  imageConfig: {
+                      aspectRatio: "16:9",
+                      imageSize: "1K"
+                  }
+              }
+          }));
+          
+          const imgData = res.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
+          if (imgData) {
+              setMapImage(`data:image/png;base64,${imgData}`);
+          }
+      } catch (e) {
+          console.error("Map generation failed:", e);
+      }
+  };
   const [isGeneratingVideo, setIsGeneratingVideo] = useState(false);
   const [hasSave, setHasSave] = useState(false);
 
@@ -610,6 +679,40 @@ function App() {
       finally { setIsGeneratingVideo(false); }
   };
 
+  const generatePlayerPortrait = async (playerId: number) => {
+      const player = playersRef.current.find(p => p.id === playerId);
+      if (!player) return;
+      
+      try {
+          addLog(`Generating portrait for ${player.name}...`, 'info');
+          const ai = getAi();
+          const boatName = getBoat(player.currentBoatId).name;
+          
+          const prompt = `A rugged 1980s Icelandic fishing boat captain named ${player.name}, rank ${player.rank}, commanding a ${boatName}. Cinematic, moody, highly detailed portrait, 80s aesthetic, thick wool sweater, weathered face, sea spray, dramatic lighting.`;
+          
+          const res = await withRetry<GenerateContentResponse>(() => ai.models.generateContent({
+              model: 'gemini-3.1-flash-image-preview',
+              contents: { parts: [{ text: prompt }] },
+              config: {
+                  imageConfig: {
+                      aspectRatio: "1:1",
+                      imageSize: "512px"
+                  }
+              }
+          }));
+          
+          const imgData = res.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
+          if (imgData) {
+              const imageUrl = `data:image/png;base64,${imgData}`;
+              setPlayers(prev => prev.map(p => p.id === playerId ? { ...p, portraitUrl: imageUrl } : p));
+              addLog(`Portrait generated for ${player.name}!`, 'success');
+          }
+      } catch (error) {
+          console.error("Portrait generation failed:", error);
+          addLog(`Failed to generate portrait for ${player.name}`, 'alert');
+      }
+  };
+
   const generateWorld = async (theme: string) => {
         const ai = getAi();
         const prompt = `Generate 16 unique names for a Monopoly board based on '${theme}'.
@@ -618,6 +721,9 @@ function App() {
         Return JSON array of objects: { name, type, price }.`;
         
         try {
+            generateMapImage(theme); // Start map generation in parallel
+            generateBgVideo(`A sweeping cinematic drone shot of a 1980s Icelandic fishing trawler battling rough seas, ${theme}`); // Start video generation in parallel
+            
             const res = await ai.models.generateContent({ model: 'gemini-3-flash-preview', contents: prompt });
             const jsonStr = res.text?.replace(/```json/g, '').replace(/```/g, '').trim();
             const data = JSON.parse(jsonStr || "[]");
@@ -643,7 +749,18 @@ function App() {
   // --- Render ---
 
   if (view === 'CAREER_START') {
-      return <CareerSetup onComplete={(p, c, theme) => { setPlayers(p); setCompanies(c); setGameTheme(theme); setView('MAKER'); }} onResume={hasSave ? handleResume : undefined} />;
+      return <CareerSetup onComplete={(p, c, theme) => { 
+          setPlayers(p); 
+          setCompanies(c); 
+          setGameTheme(theme); 
+          setView('MAKER'); 
+          // Auto-generate portraits for new players
+          setTimeout(() => {
+              p.forEach(player => {
+                  generatePlayerPortrait(player.id);
+              });
+          }, 1000); // Small delay to ensure state is set
+      }} onResume={hasSave ? handleResume : undefined} />;
   }
   
   if (view === 'MAKER') {
@@ -742,10 +859,21 @@ function App() {
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 font-sans overflow-hidden relative flex flex-col">
         {/* Cinematic Background */}
-        <div className="absolute inset-0 z-0 transition-opacity duration-1000" style={{
-            backgroundImage: bgImage ? `url(${bgImage})` : `url(${PREMADE_IMAGES.START})`,
-            backgroundSize: 'cover', backgroundPosition: 'center', opacity: 0.4
-        }}></div>
+        {bgVideo ? (
+            <video 
+                src={bgVideo} 
+                autoPlay 
+                loop 
+                muted 
+                playsInline 
+                className="absolute inset-0 w-full h-full object-cover z-0 opacity-40 transition-opacity duration-1000"
+            />
+        ) : (
+            <div className="absolute inset-0 z-0 transition-opacity duration-1000" style={{
+                backgroundImage: bgImage ? `url(${bgImage})` : `url(${PREMADE_IMAGES.START})`,
+                backgroundSize: 'cover', backgroundPosition: 'center', opacity: 0.4
+            }}></div>
+        )}
         <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-900/80 to-slate-950/40 z-0"></div>
 
         {/* Top Bar */}
@@ -781,8 +909,21 @@ function App() {
                     {players.map((p, idx) => (
                         <div key={p.id} className={`p-3 rounded-lg border ${turn === idx ? 'bg-white/10 border-cyan-500' : 'bg-transparent border-white/5'} transition-all`}>
                             <div className="flex items-center gap-3">
-                                <div className={`w-10 h-10 rounded-full ${p.color} flex items-center justify-center font-serif font-bold text-white shadow`}>
-                                    {p.name.substring(0,1)}
+                                <div className="relative group shrink-0">
+                                    {p.portraitUrl ? (
+                                        <img src={p.portraitUrl} className="w-10 h-10 rounded-full object-cover border-2 border-white/20 shadow" />
+                                    ) : (
+                                        <div className={`w-10 h-10 rounded-full ${p.color} flex items-center justify-center font-serif font-bold text-white shadow`}>
+                                            <Ship size={20} />
+                                        </div>
+                                    )}
+                                    <button 
+                                        onClick={() => generatePlayerPortrait(p.id)}
+                                        className="absolute -bottom-1 -right-1 bg-slate-800 rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity border border-white/20 hover:bg-slate-700 z-10"
+                                        title="Generate AI Portrait"
+                                    >
+                                        <Sparkles size={10} className="text-amber-400" />
+                                    </button>
                                 </div>
                                 <div className="flex-1 min-w-0">
                                     <div className="flex justify-between items-center">
@@ -814,7 +955,7 @@ function App() {
                 <div className="flex flex-1 gap-2 my-2">
                     <div className="flex flex-col w-1/5 gap-2">{[...board.slice(13, 16)].reverse().map(s => <BoardSpaceCell key={s.id} space={s} players={players} activePlayerId={turn} gameState={gameState} />)}</div>
                     <div className="flex-1 relative bg-slate-900/50 rounded-lg flex flex-col items-center justify-center overflow-hidden">
-                        <div className="absolute inset-0 opacity-20 bg-[url('https://upload.wikimedia.org/wikipedia/commons/c/c9/Iceland_relief_map.jpg')] bg-cover bg-center mix-blend-overlay"></div>
+                        <div className="absolute inset-0 opacity-20 bg-cover bg-center mix-blend-overlay" style={{backgroundImage: `url('${mapImage || "https://upload.wikimedia.org/wikipedia/commons/c/c9/Iceland_relief_map.jpg"}')`}}></div>
                         <div className="z-10 text-center w-full h-full flex flex-col p-4">
                              <h2 className="text-2xl font-serif text-white/80 mb-2">{gameTheme}</h2>
                              
@@ -847,8 +988,21 @@ function App() {
             <div className="w-1/4 max-w-sm flex flex-col">
                 <div className="glass-panel rounded-xl p-6 flex flex-col h-full bg-slate-900/80">
                     <div className="flex-1 text-center flex flex-col items-center justify-center">
-                         <div className={`w-24 h-24 rounded-full border-4 border-slate-700 shadow-xl mb-4 overflow-hidden bg-slate-800`}>
-                             {currentPlayer.portraitUrl ? <img src={currentPlayer.portraitUrl} className="w-full h-full object-cover"/> : <User size={48} className="m-auto mt-6 text-slate-600"/>}
+                         <div className="relative group mb-4">
+                             <div className={`w-24 h-24 rounded-full border-4 border-slate-700 shadow-xl overflow-hidden bg-slate-800`}>
+                                 {currentPlayer.portraitUrl ? (
+                                     <img src={currentPlayer.portraitUrl} className="w-full h-full object-cover"/>
+                                 ) : (
+                                     <Ship size={48} className="m-auto mt-6 text-slate-600"/>
+                                 )}
+                             </div>
+                             <button 
+                                 onClick={() => generatePlayerPortrait(currentPlayer.id)}
+                                 className="absolute bottom-0 right-0 bg-slate-800 rounded-full p-1.5 opacity-0 group-hover:opacity-100 transition-opacity border border-white/20 hover:bg-slate-700 z-10 shadow-lg"
+                                 title="Generate AI Portrait"
+                             >
+                                 <Sparkles size={14} className="text-amber-400" />
+                             </button>
                          </div>
                          <h2 className="text-xl font-bold text-white mb-1">{currentPlayer.name}</h2>
                          <div className="text-cyan-400 text-xs tracking-widest mb-2">{currentPlayer.rank}</div>
@@ -1046,8 +1200,8 @@ const BoardSpaceCell = ({ space, players, activePlayerId, gameState }: { space: 
                 
                 <div className="flex justify-center -space-x-1">
                     {playersHere.map(p => (
-                        <div key={p.id} className={`w-6 h-6 rounded-full ${p.color} border border-white flex items-center justify-center text-[8px] font-bold relative z-20 ${p.id === activePlayerId && gameState !== 'IDLE' ? 'animate-bounce ring-2 ring-white' : ''} transition-all duration-300`}>
-                            {p.name.substring(0,1)}
+                        <div key={p.id} className={`w-6 h-6 rounded-full ${p.color} border border-white flex items-center justify-center text-[8px] font-bold relative z-20 overflow-hidden ${p.id === activePlayerId && gameState !== 'IDLE' ? 'animate-bounce ring-2 ring-white' : ''} transition-all duration-300`}>
+                            {p.portraitUrl ? <img src={p.portraitUrl} className="w-full h-full object-cover"/> : p.name.substring(0,1)}
                         </div>
                     ))}
                 </div>
