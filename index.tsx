@@ -60,6 +60,12 @@ interface BoardSpace {
   isGenerated?: boolean;
 }
 
+interface BoatUpgrades {
+    fuel: number;
+    hold: number;
+    resilience: number;
+}
+
 interface Player {
   id: number;
   name: string;
@@ -74,6 +80,7 @@ interface Player {
   isAi: boolean;
   currentBoatId: string;
   ownedBoats: string[]; // List of Boat IDs
+  boatUpgrades: Record<string, BoatUpgrades>;
   fuel: number;
   fishHold: number;
   portraitUrl?: string;
@@ -90,16 +97,18 @@ interface Company {
 interface VoyageState {
     active: boolean;
     spaceId: number;
-    fishCaught: { cod: number, haddock: number, redfish: number };
+    fishCaught: { cod: number, haddock: number, redfish: number, whale: number, seal: number };
     events: string[];
     turnCount: number;
-    mission?: { targetFish: 'cod'|'haddock'|'redfish', targetAmount: number, reward: number };
+    mission?: { targetFish: 'cod'|'haddock'|'redfish'|'whale'|'seal', targetAmount: number, reward: number };
 }
 
 interface MarketState {
   codPrice: number;
   haddockPrice: number;
   redfishPrice: number;
+  whalePrice: number;
+  sealPrice: number;
   trend: 'STABLE' | 'BOOM' | 'CRASH';
 }
 
@@ -130,6 +139,17 @@ async function withRetry<T>(fn: () => Promise<T>, retries = 3, delay = 2000): Pr
 
 const getBoat = (id: string) => BOATS_CATALOG.find(b => b.id === id) || BOATS_CATALOG[0];
 
+const getUpgradedBoat = (boatId: string, player: Player): BoatStats => {
+    const base = getBoat(boatId);
+    const upgrades = player.boatUpgrades?.[boatId] || { fuel: 0, hold: 0, resilience: 0 };
+    return {
+        ...base,
+        maxFuel: base.maxFuel + upgrades.fuel,
+        maxHold: base.maxHold + upgrades.hold,
+        resilience: Math.min(1, base.resilience + upgrades.resilience)
+    };
+};
+
 const PREMADE_IMAGES = {
   START: "https://images.unsplash.com/photo-1534447677768-be436bb09401?w=400&h=400&fit=crop&q=80",
   FISHING_GROUND: "https://images.unsplash.com/photo-1544979590-2c00a307c433?w=400&h=400&fit=crop&q=80",
@@ -149,12 +169,12 @@ function App() {
   const [board, setBoard] = useState<BoardSpace[]>([]);
   const [turn, setTurn] = useState(0);
   const [round, setRound] = useState(1);
-  const [market, setMarket] = useState<MarketState>({ codPrice: 1.5, haddockPrice: 1.2, redfishPrice: 2.0, trend: 'STABLE' });
+  const [market, setMarket] = useState<MarketState>({ codPrice: 1.5, haddockPrice: 1.2, redfishPrice: 2.0, whalePrice: 5.0, sealPrice: 3.0, trend: 'STABLE' });
   const [logs, setLogs] = useState<{id: number, text: string, type: string, timestamp: string}[]>([]);
   const [gameState, setGameState] = useState<'IDLE' | 'MOVING' | 'DECIDING' | 'GAME_OVER' | 'AI_THINKING'>('IDLE');
   
   // Voyage Mini-game State
-  const [voyage, setVoyage] = useState<VoyageState>({ active: false, spaceId: -1, fishCaught: { cod:0, haddock:0, redfish:0 }, events: [], turnCount: 0 });
+  const [voyage, setVoyage] = useState<VoyageState>({ active: false, spaceId: -1, fishCaught: { cod:0, haddock:0, redfish:0, whale:0, seal:0 }, events: [], turnCount: 0 });
   
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [winner, setWinner] = useState<Player | null>(null);
@@ -233,6 +253,10 @@ function App() {
 
   // --- Logic: Movement & Board ---
 
+  const updateReputation = (companyId: string, amount: number) => {
+      setCompanies(prev => prev.map(c => c.id === companyId ? { ...c, reputation: Math.max(0, c.reputation + amount) } : c));
+  };
+
   const triggerDiceRoll = () => {
       if (isDiceRolling || gameStateRef.current !== 'IDLE') return;
       setIsDiceRolling(true);
@@ -254,14 +278,16 @@ function App() {
 
     const roll = Math.floor(Math.random() * 6) + 1;
     const currentP = playersRef.current[turnRef.current];
-    const boat = getBoat(currentP.currentBoatId);
+    const boat = getUpgradedBoat(currentP.currentBoatId, currentP);
 
     if (currentP.isJailed) {
         if (roll === 6) {
             addLog(`${currentP.name} bribed the inspector with a 6!`, 'success');
+            updateReputation(currentP.companyId, 2);
             setPlayers(prev => prev.map(p => p.id === currentP.id ? { ...p, isJailed: false } : p));
         } else {
             addLog(`${currentP.name} failed inspection. Stays in dock.`, 'alert');
+            updateReputation(currentP.companyId, -2);
             setTimeout(() => endTurn(isAuto), AI_ACTION_DELAY);
             return;
         }
@@ -286,6 +312,8 @@ function App() {
              codPrice: Math.max(0.5, prev.codPrice + (Math.random() - 0.5)),
              haddockPrice: Math.max(0.5, prev.haddockPrice + (Math.random() - 0.5)),
              redfishPrice: Math.max(0.5, prev.redfishPrice + (Math.random() - 0.5)),
+             whalePrice: Math.max(2.0, prev.whalePrice + (Math.random() - 0.5) * 2),
+             sealPrice: Math.max(1.0, prev.sealPrice + (Math.random() - 0.5) * 1.5),
              trend: Math.random() > 0.5 ? 'BOOM' : 'STABLE'
            }));
            // Update money
@@ -329,8 +357,16 @@ function App() {
           }
       } else if (space.type === 'HARBOR' || space.type === 'MARKET') {
           if (player.fishHold > 0) {
-              const value = Math.floor(player.fishHold * market.codPrice); 
-              addLog(`Sold ${player.fishHold}kg of fish for ${value}kr!`, 'success');
+              const company = companiesRef.current.find(c => c.id === player.companyId);
+              const repBonus = 1 + (company?.reputation || 0) * 0.01;
+              
+              // Simplification: We don't track individual fish types in player inventory yet, just total weight.
+              // To make the market work, we'll assume a mixed catch based on current market prices.
+              // A better implementation would track each fish type in the player's inventory.
+              const averagePrice = (market.codPrice + market.haddockPrice + market.redfishPrice + market.whalePrice + market.sealPrice) / 5;
+              const value = Math.floor(player.fishHold * averagePrice * repBonus); 
+              addLog(`Sold ${player.fishHold}kg of catch for ${value}kr!`, 'success');
+              updateReputation(player.companyId, 1);
               
               // Revenue split based on Rank
               let companyCut = 0;
@@ -340,11 +376,11 @@ function App() {
               else { companyCut = value; playerCut = 0; } // As owner/magnate, it goes to company, player takes salary
 
               updateCompanyBalance(player.companyId, companyCut);
-              setPlayers(prev => prev.map(p => p.id === player.id ? { ...p, money: p.money + playerCut, fishHold: 0, fuel: getBoat(p.currentBoatId).maxFuel, xp: p.xp + 50 } : p));
+              setPlayers(prev => prev.map(p => p.id === player.id ? { ...p, money: p.money + playerCut, fishHold: 0, fuel: getUpgradedBoat(p.currentBoatId, p).maxFuel, xp: p.xp + 50 } : p));
               checkRankUp(player.id);
               generateVoyageImage(`Selling catch at ${space.name} market`, 'CATCH');
           } else {
-              setPlayers(prev => prev.map(p => p.id === player.id ? { ...p, fuel: getBoat(p.currentBoatId).maxFuel } : p));
+              setPlayers(prev => prev.map(p => p.id === player.id ? { ...p, fuel: getUpgradedBoat(p.currentBoatId, p).maxFuel } : p));
               addLog("Refueled at Harbor.", 'info');
           }
           if (isAuto) setTimeout(() => endTurn(true), AI_ACTION_DELAY);
@@ -385,18 +421,18 @@ function App() {
 
   const startVoyage = () => {
       const space = board[currentPlayer.position];
-      const boat = getBoat(currentPlayer.currentBoatId);
+      const boat = getUpgradedBoat(currentPlayer.currentBoatId, currentPlayer);
       
       // Generate Mission
-      const fishTypes: ('cod'|'haddock'|'redfish')[] = ['cod', 'haddock', 'redfish'];
+      const fishTypes: ('cod'|'haddock'|'redfish'|'whale'|'seal')[] = ['cod', 'haddock', 'redfish', 'whale', 'seal'];
       const targetFish = fishTypes[Math.floor(Math.random() * fishTypes.length)];
       const targetAmount = Math.floor(Math.random() * (boat.maxHold / 2)) + 50;
-      const reward = Math.floor(targetAmount * 3);
+      const reward = Math.floor(targetAmount * (targetFish === 'whale' ? 10 : targetFish === 'seal' ? 6 : 3));
 
       setVoyage({
           active: true,
           spaceId: space.id,
-          fishCaught: { cod: 0, haddock: 0, redfish: 0 },
+          fishCaught: { cod: 0, haddock: 0, redfish: 0, whale: 0, seal: 0 },
           events: [`Arrived at ${space.name}. Seas are ${weather}.`, `Mission: Catch ${targetAmount}kg ${targetFish}.`],
           turnCount: 0,
           mission: { targetFish, targetAmount, reward }
@@ -421,7 +457,10 @@ function App() {
   const purchaseBoat = (boatId: string) => {
       const boat = getBoat(boatId);
       const curP = playersRef.current[turnRef.current];
-      if (updateCompanyBalance(curP.companyId, -boat.price)) {
+      const repDiscount = 1 - Math.min(0.5, (currentCompany?.reputation || 0) * 0.005);
+      const finalPrice = Math.floor(boat.price * repDiscount);
+
+      if (updateCompanyBalance(curP.companyId, -finalPrice)) {
           setPlayers(prev => prev.map(p => p.id === curP.id ? { 
               ...p, 
               ownedBoats: [...p.ownedBoats, boat.id],
@@ -429,7 +468,7 @@ function App() {
               fuel: boat.maxFuel,
               rank: p.rank === 'DECKHAND' ? 'SKIPPER' : p.rank // Auto promotion if buying boat
           } : p));
-          addLog(`Purchased ${boat.name}!`, 'success');
+          addLog(`Purchased ${boat.name} for ${finalPrice}kr!`, 'success');
           setView('BOARD');
       } else {
           addLog("Insufficient Company Funds", 'alert');
@@ -446,9 +485,17 @@ function App() {
 
   const handleVoyageAction = async (action: 'FISH' | 'WAIT' | 'RETURN') => {
       if (action === 'RETURN') {
+          let repGain = 0;
+          if (voyage.mission && voyage.fishCaught[voyage.mission.targetFish] >= voyage.mission.targetAmount) {
+              repGain = 5;
+              addLog(`Mission Accomplished! +${voyage.mission.reward}kr, +5 Rep`, 'success');
+              updateCompanyBalance(currentPlayer.companyId, voyage.mission.reward);
+          }
+          if (repGain > 0) updateReputation(currentPlayer.companyId, repGain);
+
           setView('BOARD');
-          addLog(`${currentPlayer.name} returned with ${voyage.fishCaught.cod + voyage.fishCaught.haddock}kg fish.`, 'success');
-          setPlayers(prev => prev.map(p => p.id === currentPlayer.id ? { ...p, fishHold: p.fishHold + voyage.fishCaught.cod + voyage.fishCaught.haddock + voyage.fishCaught.redfish } : p));
+          addLog(`${currentPlayer.name} returned with ${voyage.fishCaught.cod + voyage.fishCaught.haddock + voyage.fishCaught.redfish + voyage.fishCaught.whale + voyage.fishCaught.seal}kg catch.`, 'success');
+          setPlayers(prev => prev.map(p => p.id === currentPlayer.id ? { ...p, fishHold: p.fishHold + voyage.fishCaught.cod + voyage.fishCaught.haddock + voyage.fishCaught.redfish + voyage.fishCaught.whale + voyage.fishCaught.seal } : p));
           endTurn(false);
           return;
       }
@@ -456,8 +503,8 @@ function App() {
       // Fishing Logic
       let eventText = "";
       let catchAmount = 0;
-      let fishType: 'cod'|'haddock'|'redfish' = 'cod';
-      const boat = getBoat(currentPlayer.currentBoatId);
+      let fishType: 'cod'|'haddock'|'redfish'|'whale'|'seal' = 'cod';
+      const boat = getUpgradedBoat(currentPlayer.currentBoatId, currentPlayer);
       
       // RNG based on weather and rank and boat
       const luck = Math.random();
@@ -468,7 +515,7 @@ function App() {
           if (luck > (weather === 'STORM' ? 0.6 : 0.3)) {
              catchAmount = Math.floor(Math.random() * 80 * rankBonus * boatBonus);
              const r = Math.random();
-             fishType = r > 0.6 ? 'cod' : r > 0.3 ? 'haddock' : 'redfish';
+             fishType = r > 0.9 ? 'whale' : r > 0.75 ? 'seal' : r > 0.5 ? 'cod' : r > 0.25 ? 'haddock' : 'redfish';
              eventText = `Hauled ${catchAmount}kg of ${fishType}!`;
           } else {
              eventText = "Nets came up empty.";
@@ -567,11 +614,63 @@ function App() {
   }
 
   if (view === 'SHIPYARD') {
+      const currentBoat = getUpgradedBoat(currentPlayer.currentBoatId, currentPlayer);
+      const repDiscount = 1 - Math.min(0.5, (currentCompany?.reputation || 0) * 0.005);
+
+      const upgradeBoat = (type: 'fuel' | 'hold' | 'resilience', cost: number, amount: number) => {
+          const discountedCost = Math.floor(cost * repDiscount);
+          if (updateCompanyBalance(currentPlayer.companyId, -discountedCost)) {
+              setPlayers(prev => prev.map(p => {
+                  if (p.id !== currentPlayer.id) return p;
+                  const currentUpgrades = p.boatUpgrades?.[p.currentBoatId] || { fuel: 0, hold: 0, resilience: 0 };
+                  return {
+                      ...p,
+                      boatUpgrades: {
+                          ...p.boatUpgrades,
+                          [p.currentBoatId]: {
+                              ...currentUpgrades,
+                              [type]: currentUpgrades[type] + amount
+                          }
+                      }
+                  };
+              }));
+              addLog(`Upgraded ${type} for ${discountedCost}kr!`, 'success');
+          } else {
+              addLog("Insufficient Company Funds", 'alert');
+          }
+      };
+
       return (
-          <div className="min-h-screen bg-slate-950 p-8 flex flex-col items-center justify-center">
-              <h1 className="text-4xl font-serif text-white mb-8">SHIPYARD</h1>
+          <div className="min-h-screen bg-slate-950 p-8 flex flex-col items-center justify-center overflow-y-auto">
+              <h1 className="text-4xl font-serif text-white mb-2">SHIPYARD</h1>
+              <p className="text-cyan-400 mb-8">Company Reputation: {currentCompany?.reputation} ({Math.floor((1 - repDiscount) * 100)}% Discount)</p>
+              
+              <div className="glass-panel p-6 rounded-xl mb-8 w-full max-w-4xl">
+                  <h2 className="text-2xl font-serif text-white mb-4">Upgrade Current Boat: {currentBoat.name}</h2>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                      <button onClick={() => upgradeBoat('fuel', 500, 20)} className="p-4 bg-slate-800 hover:bg-slate-700 rounded-lg border border-blue-500/30 flex flex-col items-center gap-2 transition-colors">
+                          <Wind className="text-blue-400" size={24}/>
+                          <span className="text-white font-bold">+20 Fuel Capacity</span>
+                          <span className="text-amber-400 text-sm">{Math.floor(500 * repDiscount)}kr</span>
+                      </button>
+                      <button onClick={() => upgradeBoat('hold', 1000, 100)} className="p-4 bg-slate-800 hover:bg-slate-700 rounded-lg border border-green-500/30 flex flex-col items-center gap-2 transition-colors">
+                          <Fish className="text-green-400" size={24}/>
+                          <span className="text-white font-bold">+100kg Hold Size</span>
+                          <span className="text-amber-400 text-sm">{Math.floor(1000 * repDiscount)}kr</span>
+                      </button>
+                      <button onClick={() => upgradeBoat('resilience', 2000, 0.1)} className="p-4 bg-slate-800 hover:bg-slate-700 rounded-lg border border-purple-500/30 flex flex-col items-center gap-2 transition-colors">
+                          <LifeBuoy className="text-purple-400" size={24}/>
+                          <span className="text-white font-bold">+10% Resilience</span>
+                          <span className="text-amber-400 text-sm">{Math.floor(2000 * repDiscount)}kr</span>
+                      </button>
+                  </div>
+              </div>
+
+              <h2 className="text-2xl font-serif text-white mb-4">Buy New Boats</h2>
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 max-w-6xl w-full">
-                  {BOATS_CATALOG.map(b => (
+                  {BOATS_CATALOG.map(b => {
+                      const finalPrice = Math.floor(b.price * repDiscount);
+                      return (
                       <div key={b.id} className="glass-panel p-4 rounded-xl flex flex-col">
                           <img src={b.imageUrl} className="w-full h-32 object-cover rounded-lg mb-4"/>
                           <h3 className="font-bold text-lg text-cyan-400">{b.name}</h3>
@@ -581,13 +680,13 @@ function App() {
                               <div>Speed: {b.speed}kt</div>
                           </div>
                           <div className="mt-auto">
-                              <div className="text-xl font-bold text-amber-400 mb-2">{b.price}kr</div>
-                              <button onClick={() => purchaseBoat(b.id)} disabled={currentCompany!.balance < b.price} className="w-full py-2 bg-green-700 disabled:bg-slate-700 rounded font-bold">PURCHASE</button>
+                              <div className="text-xl font-bold text-amber-400 mb-2">{finalPrice}kr {repDiscount < 1 && <span className="text-xs line-through text-slate-500">{b.price}kr</span>}</div>
+                              <button onClick={() => purchaseBoat(b.id)} disabled={currentCompany!.balance < finalPrice} className="w-full py-2 bg-green-700 hover:bg-green-600 disabled:bg-slate-700 rounded font-bold transition-colors">PURCHASE</button>
                           </div>
                       </div>
-                  ))}
+                  )})}
               </div>
-              <button onClick={() => setView('BOARD')} className="mt-8 px-8 py-3 bg-slate-700 rounded-lg text-white">Back to Port</button>
+              <button onClick={() => setView('BOARD')} className="mt-8 px-8 py-3 bg-slate-700 hover:bg-slate-600 rounded-lg text-white transition-colors">Back to Port</button>
           </div>
       )
   }
@@ -612,7 +711,14 @@ function App() {
                 </div>
             </div>
             <div className="flex gap-4 text-xs font-bold">
-                 <div className="flex items-center gap-1 text-green-400"><TrendingUp size={12}/> COD: {market.codPrice.toFixed(2)}</div>
+                 <div className="flex items-center gap-2 text-green-400">
+                     <TrendingUp size={12}/> 
+                     <span>COD: {market.codPrice.toFixed(1)}</span>
+                     <span>HAD: {market.haddockPrice.toFixed(1)}</span>
+                     <span>RED: {market.redfishPrice.toFixed(1)}</span>
+                     <span className="text-purple-400">WHL: {market.whalePrice.toFixed(1)}</span>
+                     <span className="text-amber-400">SEL: {market.sealPrice.toFixed(1)}</span>
+                 </div>
                  <button onClick={handleClearSave} className="text-red-400 flex items-center gap-1 hover:text-red-300"><Trash2 size={12}/> Reset</button>
             </div>
         </div>
@@ -664,11 +770,11 @@ function App() {
             <div className="flex-1 glass-panel rounded-xl relative p-4 flex flex-col justify-between overflow-hidden">
                 {/* Top Row */}
                 <div className="flex gap-2 h-1/5">
-                    {board.slice(0, 5).map(s => <BoardSpaceCell key={s.id} space={s} players={players} />)}
+                    {board.slice(0, 5).map(s => <BoardSpaceCell key={s.id} space={s} players={players} activePlayerId={turn} gameState={gameState} />)}
                 </div>
                 {/* Middle */}
                 <div className="flex flex-1 gap-2 my-2">
-                    <div className="flex flex-col w-1/5 gap-2">{[...board.slice(13, 16)].reverse().map(s => <BoardSpaceCell key={s.id} space={s} players={players} />)}</div>
+                    <div className="flex flex-col w-1/5 gap-2">{[...board.slice(13, 16)].reverse().map(s => <BoardSpaceCell key={s.id} space={s} players={players} activePlayerId={turn} gameState={gameState} />)}</div>
                     <div className="flex-1 relative bg-slate-900/50 rounded-lg flex flex-col items-center justify-center">
                         <div className="absolute inset-0 opacity-20 bg-[url('https://upload.wikimedia.org/wikipedia/commons/c/c9/Iceland_relief_map.jpg')] bg-cover bg-center mix-blend-overlay"></div>
                         <div className="z-10 text-center">
@@ -678,11 +784,11 @@ function App() {
                              </div>}
                         </div>
                     </div>
-                    <div className="flex flex-col w-1/5 gap-2">{board.slice(5, 8).map(s => <BoardSpaceCell key={s.id} space={s} players={players} />)}</div>
+                    <div className="flex flex-col w-1/5 gap-2">{board.slice(5, 8).map(s => <BoardSpaceCell key={s.id} space={s} players={players} activePlayerId={turn} gameState={gameState} />)}</div>
                 </div>
                 {/* Bottom Row */}
                 <div className="flex gap-2 h-1/5">
-                    {[...board.slice(8, 13)].reverse().map(s => <BoardSpaceCell key={s.id} space={s} players={players} />)}
+                    {[...board.slice(8, 13)].reverse().map(s => <BoardSpaceCell key={s.id} space={s} players={players} activePlayerId={turn} gameState={gameState} />)}
                 </div>
             </div>
 
@@ -695,7 +801,7 @@ function App() {
                          </div>
                          <h2 className="text-xl font-bold text-white mb-1">{currentPlayer.name}</h2>
                          <div className="text-cyan-400 text-xs tracking-widest mb-2">{currentPlayer.rank}</div>
-                         <div className="bg-slate-800 px-3 py-1 rounded text-xs text-slate-400 mb-6">Boat: {getBoat(currentPlayer.currentBoatId).name}</div>
+                         <div className="bg-slate-800 px-3 py-1 rounded text-xs text-slate-400 mb-6">Boat: {getUpgradedBoat(currentPlayer.currentBoatId, currentPlayer).name}</div>
 
                          {gameState === 'IDLE' ? (
                              <div className="w-full space-y-3">
@@ -753,7 +859,7 @@ const CareerSetup = ({ onComplete, onResume }: { onComplete: (players: Player[],
         newPlayers.push({
             id: 0, name: captainName, color: "bg-amber-500", position: 0, money: 500, fuel: 40, fishHold: 0, 
             rank: 'DECKHAND', xp: 0, isJailed: false, isBankrupt: false, inventory: [], isAi: false, 
-            currentBoatId: 'b_dinghy', ownedBoats: ['b_dinghy'], companyId: compId
+            currentBoatId: 'b_dinghy', ownedBoats: ['b_dinghy'], companyId: compId, boatUpgrades: {}
         });
 
         // Mate (Human Co-op)
@@ -761,7 +867,7 @@ const CareerSetup = ({ onComplete, onResume }: { onComplete: (players: Player[],
             newPlayers.push({
                 id: 1, name: mateName, color: "bg-cyan-500", position: 0, money: 500, fuel: 40, fishHold: 0, 
                 rank: 'DECKHAND', xp: 0, isJailed: false, isBankrupt: false, inventory: [], isAi: false, 
-                currentBoatId: 'b_dinghy', ownedBoats: ['b_dinghy'], companyId: compId
+                currentBoatId: 'b_dinghy', ownedBoats: ['b_dinghy'], companyId: compId, boatUpgrades: {}
             });
         }
 
@@ -865,8 +971,10 @@ const VoyageView = ({ voyage, player, boat, onAction }: { voyage: VoyageState, p
     );
 };
 
-const BoardSpaceCell = ({ space, players }: { space: BoardSpace, players: Player[] }) => {
+const BoardSpaceCell = ({ space, players, activePlayerId, gameState }: { space: BoardSpace, players: Player[], activePlayerId: number, gameState: string }) => {
     const playersHere = players.filter(p => p.position === space.id);
+    const isActiveSpace = playersHere.some(p => p.id === activePlayerId) && gameState !== 'IDLE';
+
     const colorClass = 
         space.type === 'FISHING_GROUND' ? 'bg-blue-900/30 border-blue-500/30' : 
         space.type === 'HARBOR' ? 'bg-amber-900/30 border-amber-500/30' :
@@ -875,7 +983,7 @@ const BoardSpaceCell = ({ space, players }: { space: BoardSpace, players: Player
         'bg-slate-800/30 border-slate-600/30';
 
     return (
-        <div className={`relative flex-1 rounded-md border ${colorClass} overflow-hidden group hover:border-white/50 transition-colors`}>
+        <div className={`relative flex-1 rounded-md border ${colorClass} overflow-hidden group hover:border-white/50 transition-colors ${isActiveSpace ? 'ring-2 ring-cyan-400 animate-pulse-glow' : ''}`}>
             {space.imageUrl && <img src={space.imageUrl} className="absolute inset-0 w-full h-full object-cover opacity-40 group-hover:opacity-60 transition-opacity grayscale hover:grayscale-0"/>}
             <div className="relative z-10 p-1 flex flex-col h-full justify-between">
                 <div className="flex justify-between items-start">
@@ -887,7 +995,7 @@ const BoardSpaceCell = ({ space, players }: { space: BoardSpace, players: Player
                 
                 <div className="flex justify-center -space-x-1">
                     {playersHere.map(p => (
-                        <div key={p.id} className={`w-6 h-6 rounded-full ${p.color} border border-white flex items-center justify-center text-[8px] font-bold relative z-20`}>
+                        <div key={p.id} className={`w-6 h-6 rounded-full ${p.color} border border-white flex items-center justify-center text-[8px] font-bold relative z-20 ${p.id === activePlayerId && gameState !== 'IDLE' ? 'animate-bounce ring-2 ring-white' : ''} transition-all duration-300`}>
                             {p.name.substring(0,1)}
                         </div>
                     ))}
